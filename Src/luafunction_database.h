@@ -15,6 +15,7 @@
 
 
 namespace lua{
+  // NOTE: lua_State shouldn't be destroyed in this class' lifetime
   class func_db: I_debug_user{
     private:
       struct _func_metadata{
@@ -103,7 +104,10 @@ namespace lua{
 
         lua_getglobal(_this_state, function_name);
         if(lua_type(_this_state, -1) != LUA_TFUNCTION){
-          _current_logger->print_error(format_str("Variable (%s) is not a function.\n", function_name));
+          if(_current_logger){
+            _current_logger->print_error(format_str("Variable (%s) is not a function.\n", function_name));
+          }
+
           goto on_error_label;
         }
 
@@ -131,7 +135,10 @@ namespace lua{
 
         auto _iter = _c_metadata_map.find(function_name);
         if(_iter != _c_metadata_map.end()){
-          _current_logger->print_error(format_str("Function (%s) already exposed to lua.\n", function_name));
+          if(_current_logger){
+            _current_logger->print_error(format_str("Function (%s) already exposed to lua.\n", function_name));
+          }
+
           return false;
         }
 
@@ -153,9 +160,6 @@ namespace lua{
           for(int i = 0; i < _arg_size; i++){
             int _stack_idx = -1-(_arg_size-i-1);
 
-            std::string _val_str = lua::to_string(state, _stack_idx);
-            printf("arg i%d: %s\n", i, _val_str.c_str());
-
             _list.set_idx(i, to_variant(state, _stack_idx));
           }
 
@@ -165,8 +169,6 @@ namespace lua{
           // deinit args
           for(int i = 0; i < _arg_size; i++)
             delete _list[i];
-
-          printf("function called: %s\n", _db->_current_thread_funccall[std::this_thread::get_id()].c_str());
 
           return (int)(var_result::get_static_lua_type() != LUA_TNIL);
         }, 0);
@@ -179,28 +181,36 @@ namespace lua{
       // Always check the returned value, since there's a chance that the returned value is a error_var
       // NOTE: don't forget to delete returned variant if returned variant is not NULL
       template<typename... var_args> lua::variant* call_lua_function(const char* function_name, var_args... args){
+        if(!_this_state)
+          return NULL;
+    
         auto _iter = _lua_metadata_map.find(function_name);
         if(_iter == _lua_metadata_map.end()){
-          _current_logger->print_error(format_str("Cannot get Function metadata of (%s).", function_name));
+          if(_current_logger){
+            _current_logger->print_error(format_str("Cannot get Function metadata of (%s).", function_name));
+          }
+
           goto on_error_label;
         }
 
         {lua_getglobal(_this_state, function_name);
           int _curr_idx = 0;
           ([&]{
-            if(_curr_idx >= _iter->second->_func_args_type.size())
-              _current_logger->print_warning(format_str("Function (%s) has less exposed argument than expected (%d/%d).\n",
-                function_name,
-                _curr_idx+1,
-                _iter->second->_func_args_type.size()
-              ));
-            else if(args->get_type() != _iter->second->_func_args_type[_curr_idx])
-              _current_logger->print_warning(format_str("Function (%s), Argument #%d mismatched type. (%s:%s)\n",
-                function_name,
-                _curr_idx,
-                lua_typename(_this_state, args->get_type()),
-                lua_typename(_this_state, _iter->second->_func_args_type[_curr_idx])
-              ));
+            if(_current_logger){
+              if(_curr_idx >= _iter->second->_func_args_type.size())
+                _current_logger->print_warning(format_str("Function (%s) has less exposed argument than expected (%d/%d).\n",
+                  function_name,
+                  _curr_idx+1,
+                  _iter->second->_func_args_type.size()
+                ));
+              else if(args->get_type() != _iter->second->_func_args_type[_curr_idx])
+                _current_logger->print_warning(format_str("Function (%s), Argument #%d mismatched type. (%s:%s)\n",
+                  function_name,
+                  _curr_idx,
+                  lua_typename(_this_state, args->get_type()),
+                  lua_typename(_this_state, _iter->second->_func_args_type[_curr_idx])
+                ));
+            }
 
             args->push_to_stack(_this_state);
             _curr_idx++;

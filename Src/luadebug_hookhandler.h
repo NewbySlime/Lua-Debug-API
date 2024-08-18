@@ -11,6 +11,7 @@
 
 
 namespace lua::debug{
+  // NOTE: lua_State shouldn't be destroyed in this class' lifetime
   class hook_handler: public I_debug_user{
     public:
       typedef void (*hookcb)(lua_State* state, void* cbdata);
@@ -46,6 +47,9 @@ namespace lua::debug{
 
       void set_hook(int hook_mask, hookcb cb, void* attached_obj);
       void remove_hook(void* attached_obj);
+
+      void set_count(int count);
+      int get_count() const;
 
       const lua_Debug* get_current_debug_value() const;
 

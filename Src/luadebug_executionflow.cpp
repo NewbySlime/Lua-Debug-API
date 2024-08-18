@@ -15,28 +15,128 @@ using namespace lua::debug;
 execution_flow::execution_flow(lua_State* state){
   _hook_handler = hook_handler::get_this_attached(state);
   _this_state = NULL;
-  _logger = get_stdlogger(); 
+  _logger = get_stdlogger();
+
+  if(!state){
+    _logger->print_error("Cannot bind execution_flow to lua_State. Reason: lua_State provided is NULL.\n");
+    return;
+  }
 
   execution_flow* _check_obj = get_attached_obj(state);
-  if(_check_obj || _check_obj != this){
-    _logger->print_warning("Cannot bind execution_flow to lua_State. Reason: Another obj already bound to lua_State.");
+  if(_check_obj){
+    _logger->print_warning("Cannot bind execution_flow to lua_State. Reason: Another obj already bound to lua_State.\n");
     return;
   }
 
   if(!_hook_handler){
-    _logger->print_error("Cannot bind execution_flow to lua_State. Reason: Cannot get bound hook_handler in lua_State.");
+    _logger->print_error("Cannot bind execution_flow to lua_State. Reason: Cannot get bound hook_handler in lua_State.\n");
     return;
   }
 
   _this_state = state;
-  _hook_handler->set_hook(LUA_MASKLINE | LUA_MASKCOUNT, _hookcb, this);
+  _hook_handler->set_hook(LUA_MASKCALL | LUA_MASKRET | LUA_MASKLINE | LUA_MASKCOUNT, _hookcb_static, this);
 
   _set_bind_obj(this, state);
 }
 
 execution_flow::~execution_flow(){
-  if(_this_state)
-    _set_bind_obj(NULL, _this_state);
+  if(!_this_state)
+    return;
+
+  _hook_handler->remove_hook(this);
+  _set_bind_obj(NULL, _this_state);
+
+  while(_function_layer.size() > 0){
+    _function_data* _data = _function_layer.top();
+    _function_layer.pop();
+
+    delete _data;
+  }
+
+  if(currently_pausing())
+    resume_execution();
+}
+
+
+void execution_flow::_block_execution(){
+  std::unique_lock<std::mutex> _ulock(_execution_mutex);
+
+  _currently_executing = false;
+  _execution_block.wait(_ulock);
+  _currently_executing = true;
+}
+
+
+void execution_flow::_hookcb(){
+  _currently_executing = true;
+  const lua_Debug* _debug_data = _hook_handler->get_current_debug_value();
+
+  switch(_debug_data->event){
+    break; case LUA_HOOKTAILCALL:{
+      if(_function_layer.size() <= 0)
+        break;
+
+      _function_layer.top()->is_tailcall = true;
+    }
+
+    break; case LUA_HOOKCALL:{
+      _function_data* _new_data = new _function_data();
+      _new_data->name = _debug_data->name? _debug_data->name: "";
+      _new_data->is_tailcall = false;
+
+      _function_layer.push(_new_data);
+    }
+
+    break; case LUA_HOOKRET:{
+      if(_function_layer.size() <= 0)
+        break;
+
+      _function_data* _data = _function_layer.top();
+      _function_layer.pop();
+
+      delete _data;
+    }
+  }
+
+  if(!_do_block)
+    return;
+
+  if(_stepping_type != st_none){
+    switch(_debug_data->event){
+      break; case LUA_HOOKCOUNT:{
+        if(_stepping_type != step_type::st_per_counts)
+          return;
+      }
+
+      break; case LUA_HOOKLINE:{
+        int _layer_count = get_function_layer();
+        if(
+          _stepping_type != step_type::st_per_line &&
+          (_stepping_type != step_type::st_over || _layer_count != _step_layer_check) &&
+          _stepping_type != step_type::st_in &&
+          (_stepping_type != step_type::st_out || _layer_count > _step_layer_check)
+        )
+          return;
+      }
+
+      break; case LUA_HOOKTAILCALL:
+       case LUA_HOOKCALL:{
+        if(_stepping_type != step_type::st_in)
+          return;
+      }
+
+      break; case LUA_HOOKRET:{
+        int _layer_count = get_function_layer();
+        if(
+          (_stepping_type != step_type::st_out || _layer_count > _step_layer_check) &&
+          (_stepping_type != step_type::st_over || _layer_count > _step_layer_check)
+        )
+          return;
+      }
+    }
+  }
+
+  _block_execution();
 }
 
 
@@ -53,6 +153,8 @@ void execution_flow::_set_bind_obj(execution_flow* obj, lua_State* state){
 
   string_var _key_var = from_pointer_to_str(state);
   lightuser_var _value_var = lightuser_var(obj);
+
+  // possible multiple object in one state for in case of multi threading
   set_table_value(state, LUA_CONV_T2B(state, -1), &_key_var, &_value_var);
 
   // pop the global table
@@ -60,8 +162,8 @@ void execution_flow::_set_bind_obj(execution_flow* obj, lua_State* state){
 }
 
 
-void execution_flow::_hookcb(lua_State* state, void* cb_data){
-
+void execution_flow::_hookcb_static(lua_State* state, void* cb_data){
+  ((execution_flow*)cb_data)->_hookcb();
 }
 
 
@@ -91,6 +193,91 @@ execution_flow* execution_flow::get_attached_obj(lua_State* state){
 }
 
 
+void execution_flow::set_step_count(int count){
+  if(!_this_state)
+    return;
+
+  _hook_handler->set_count(count);
+}
+
+int execution_flow::get_step_count() const{
+  if(!_this_state)
+    return -1;
+
+  return _hook_handler->get_count();
+}
+
+
+unsigned int execution_flow::get_function_layer() const{
+  return _function_layer.size();
+}
+
+std::string execution_flow::get_function_name() const{
+  if(_function_layer.size() <= 0)
+    return "";
+
+  _function_data* _data = _function_layer.top();
+  return _data->name + (_data->is_tailcall? " (tailcalled)": "");
+}
+
+
+void execution_flow::block_execution(){
+  if(!_this_state)
+    return;
+    
+  _do_block = true;
+  _stepping_type = st_none;
+}
+
+void execution_flow::resume_execution(){
+  if(!_this_state)
+    return;
+    
+  _do_block = false;
+  _execution_block.notify_all();
+}
+
+void execution_flow::step_execution(step_type st){
+  if(!_this_state)
+    return;
+    
+  block_execution();
+
+  _stepping_type = st;
+  switch(st){
+    break; case step_type::st_over:{
+      _step_layer_check = get_function_layer();
+    }
+
+    break; case step_type::st_in:{
+      _step_layer_check = get_function_layer()+1;
+    }
+
+    break; case step_type::st_out:{
+      _step_layer_check = get_function_layer()-1;
+    }
+  }
+
+  _execution_block.notify_all();
+}
+
+
+bool execution_flow::currently_pausing(){
+  return !_currently_executing;
+}
+
+
+const lua_Debug* execution_flow::get_debug_data() const{
+  if(!_this_state)
+    return NULL;
+    
+  return _hook_handler->get_current_debug_value();
+}
+
+
 void execution_flow::set_logger(I_logger* logger){
-  
+  if(!_this_state)
+    return;
+    
+  _logger = logger;
 }

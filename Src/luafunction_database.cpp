@@ -154,10 +154,16 @@ func_db* func_db::get_state_db(lua_State* state){
 
 
 void func_db::set_logger(I_logger* logger){
+  if(!_this_state)
+    return;
+    
   _current_logger = logger;
 }
 
 
 bool func_db::remove_lua_function_def(const char* function_name){
+  if(!_this_state)
+    return false;
+    
   return _lua_delete_metadata(function_name);
 }

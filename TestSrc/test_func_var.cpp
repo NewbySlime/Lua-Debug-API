@@ -178,10 +178,11 @@ int main(){
 
       delete e;
     }
+
+    delete _hook_handler;
   }
 
   printf("[C++] Closing lua state...\n");
-  delete _hook_handler;
   lua_close(_state);
   printf("[C++] Lua state closed\n");
 }

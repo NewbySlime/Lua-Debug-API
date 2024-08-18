@@ -17,7 +17,6 @@ hook_handler::hook_handler(lua_State* state, int count){
   _this_state = NULL;
 
   this->count = count;
-  _current_dbg = new lua_Debug();
 
   _logger = get_stdlogger();
 
@@ -39,8 +38,6 @@ hook_handler::~hook_handler(){
     nil_var _lud_var;
     _lud_var.setglobal(_this_state, LUD_HOOK_VAR_NAME);
   }
-
-  delete _current_dbg;
 }
 
 
@@ -60,19 +57,18 @@ void hook_handler::_on_hook_event(lua_State* state, lua_Debug* dbg){
   _current_dbg = dbg;
   std::map<void*, hookcb>* _current_hook_map = NULL;
 
+  lua_getinfo(state, "nSl", _current_dbg);
   switch(dbg->event){
-    break; case LUA_HOOKCALL:{
-      lua_getinfo(state, "n", dbg);
+    break; case LUA_HOOKTAILCALL:
+     case LUA_HOOKCALL:{
       _current_hook_map = &_call_hook_set;
     }
 
     break; case LUA_HOOKRET:{
-      lua_getinfo(state, "n", dbg);
       _current_hook_map = &_return_hook_set;
     }
 
     break; case LUA_HOOKLINE:{
-      lua_getinfo(state, "l", dbg);
       _current_hook_map = &_line_hook_set;
     }
 
@@ -99,7 +95,8 @@ void hook_handler::_on_hook_event_static(lua_State* state, lua_Debug* dbg){
 
 hook_handler* hook_handler::get_this_attached(lua_State* state){
   variant* _lud_var = to_variant_fglobal(state, LUD_HOOK_VAR_NAME);
-  hook_handler* _result = (hook_handler*)(_lud_var->get_type() == lightuser_var::get_static_lua_type()? ((lightuser_var*)_lud_var)->get_data(): NULL);
+  hook_handler* _result = 
+    (hook_handler*)(_lud_var->get_type() == lightuser_var::get_static_lua_type()? ((lightuser_var*)_lud_var)->get_data(): NULL);
   
   delete _lud_var;
   return _result;
@@ -107,6 +104,9 @@ hook_handler* hook_handler::get_this_attached(lua_State* state){
 
 
 void hook_handler::set_hook(int hook_mask, hook_handler::hookcb cb, void* attached_obj){
+  if(!_this_state)
+    return;
+    
   remove_hook(attached_obj);
 
   for(int i = 0; i < LUA_MAX_MASK_COUNT; i++){
@@ -137,6 +137,9 @@ void hook_handler::set_hook(int hook_mask, hook_handler::hookcb cb, void* attach
 }
 
 void hook_handler::remove_hook(void* attached_obj){
+  if(!_this_state)
+    return;
+    
   _call_hook_set.erase(attached_obj);
   _return_hook_set.erase(attached_obj);
   _line_hook_set.erase(attached_obj);
@@ -146,7 +149,26 @@ void hook_handler::remove_hook(void* attached_obj){
 }
 
 
+void hook_handler::set_count(int count){
+  if(!_this_state)
+    return;
+    
+  this->count = count;
+  _update_hook_config();
+}
+
+int hook_handler::get_count() const{
+  if(!_this_state)
+    return -1;
+    
+  return count;
+}
+
+
 const lua_Debug* hook_handler::get_current_debug_value() const{
+  if(!_this_state)
+    return NULL;
+    
   return _current_dbg;
 }
 
