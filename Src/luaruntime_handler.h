@@ -7,6 +7,7 @@
 #include "luadebug_hookhandler.h"
 #include "luadebug_executionflow.h"
 #include "luafunction_database.h"
+#include "library_linking.h"
 
 #if _WIN64
 #include "Windows.h"
@@ -14,11 +15,24 @@
 
 
 namespace lua{
-  // NOTE: lua_State shouldn't be destroyed in this class' lifetime
-  class runtime_handler: public I_debug_user{
+  class I_runtime_handler: public I_debug_user{
     public:
       typedef void (*execution_context)(void* data);
 
+      virtual ~I_runtime_handler(){}
+
+      virtual lua::I_func_db* get_function_database_interface() = 0;
+      virtual lua::debug::I_hook_handler* get_hook_handler_interface() = 0;
+      virtual lua::debug::I_execution_flow* get_execution_flow_interface() = 0;
+
+      virtual void stop_execution() = 0;
+      virtual bool run_execution(execution_context cb, void* cbdata) = 0;
+      virtual bool is_currently_executing() const = 0;
+  };
+
+
+  // NOTE: lua_State shouldn't be destroyed in this class' lifetime
+  class runtime_handler: public I_runtime_handler{
     private:
       I_logger* _logger;
 
@@ -60,18 +74,26 @@ namespace lua{
 
       static runtime_handler* get_attached_object(lua_State* state);
 
-      lua::func_db* get_function_database();
       lua_State* get_lua_state();
 
+      lua::func_db* get_function_database();
       lua::debug::hook_handler* get_hook_handler();
       lua::debug::execution_flow* get_execution_flow();
 
-      void stop_execution();
-      bool run_execution(execution_context cb, void* cbdata);
-      bool is_currently_executing();
+      lua::I_func_db* get_function_database_interface() override;
+      lua::debug::I_hook_handler* get_hook_handler_interface() override;
+      lua::debug::I_execution_flow* get_execution_flow_interface() override;
 
+      void stop_execution() override;
+      bool run_execution(execution_context cb, void* cbdata) override;
+      bool is_currently_executing() const override;
+
+      // NOTE: This will bind the logger to all tool membters in this object
       void set_logger(I_logger* logger) override;
   };
 }
+
+lua::I_runtime_handler* cpplua_create_runtime_handler(const char* lua_path);
+void cpplua_delete_runtime_handler(lua::I_runtime_handler* handler);
 
 #endif

@@ -53,26 +53,26 @@ func_db::~func_db(){
 }
 
 
-func_db::_func_metadata* func_db::_lua_create_metadata(const std::string& name){
-  {_func_metadata* _check_metadata = _lua_get_metadata(name);
+func_db::_lua_func_metadata* func_db::_lua_create_metadata(const std::string& name){
+  {_lua_func_metadata* _check_metadata = _lua_get_metadata(name);
     if(_check_metadata)
       return _check_metadata;
   }
 
-  _func_metadata* _new_metadata = new _func_metadata();
+  _lua_func_metadata* _new_metadata = new _lua_func_metadata();
   _lua_metadata_map[name] = _new_metadata;
   return _new_metadata;
 }
 
 
-func_db::_func_metadata* func_db::_lua_get_metadata(const std::string& name){
+func_db::_lua_func_metadata* func_db::_lua_get_metadata(const std::string& name){
   auto _iter = _lua_metadata_map.find(name);
   return _iter != _lua_metadata_map.end()? _iter->second: NULL;
 }
 
 
 bool func_db::_lua_delete_metadata(const std::string& name){
-  _func_metadata* _check_metadata = _lua_get_metadata(name);
+  _lua_func_metadata* _check_metadata = _lua_get_metadata(name);
   if(!_check_metadata)
     return false;
 
@@ -82,26 +82,30 @@ bool func_db::_lua_delete_metadata(const std::string& name){
 }
 
 
-func_db::_func_metadata* func_db::_c_create_metadata(const std::string& name){
-  {_func_metadata* _check_metadata = _c_get_metadata(name);
+func_db::_c_func_metadata* func_db::_c_create_metadata(const std::string& name){
+  {_c_func_metadata* _check_metadata = _c_get_metadata(name);
     if(_check_metadata)
       return _check_metadata;
   }
 
-  _func_metadata* _new_metadata = new _func_metadata();
+  _c_func_metadata* _new_metadata = new _c_func_metadata();
   _c_metadata_map[name] = _new_metadata;
   return _new_metadata;
 }
 
-func_db::_func_metadata* func_db::_c_get_metadata(const std::string& name){
+func_db::_c_func_metadata* func_db::_c_get_metadata(const std::string& name){
   auto _iter = _c_metadata_map.find(name);
   return _iter != _c_metadata_map.end()? _iter->second: NULL;
 }
 
 bool func_db::_c_delete_metadata(const std::string& name){
-  _func_metadata* _check_metadata = _c_get_metadata(name);
+  _c_func_metadata* _check_metadata = _c_get_metadata(name);
   if(!_check_metadata)
     return false;
+
+  // remove c function from lua
+  lua_pushnil(_this_state);
+  lua_setglobal(_this_state, name.c_str());
 
   delete _check_metadata;
   _c_metadata_map.erase(name);
@@ -109,7 +113,7 @@ bool func_db::_c_delete_metadata(const std::string& name){
 }
 
 
-variant* func_db::_call_function(int arg_count, int return_count, int msgh){
+lua::variant* func_db::_call_lua_function(int arg_count, int return_count, int msgh){
   if(!_this_state)
     return NULL;
 
@@ -133,6 +137,39 @@ variant* func_db::_call_function(int arg_count, int return_count, int msgh){
   return to_variant(_this_state, -1);
 }
 
+
+int func_db::_c_function_cb_nonstrict(lua_State* state){
+  func_db* _this = get_state_db(state);
+  if(!_this)
+    return 0;
+
+  const char* _fname = lua_tolstring(state, lua_upvalueindex(1), NULL);
+  _c_func_metadata* _metadata = _this->_c_get_metadata(_fname);
+  
+  function_cb _c_cb = (function_cb)_metadata->function_address;
+  vararr _args, _results;
+  
+  // get arguments
+  int _arg_count = lua_gettop(_this->_this_state);
+  for(int i = 0; i < _arg_count; i++){
+    variant* _var = to_variant(_this->_this_state, -(_arg_count-i));
+    _args.append_var(_var);
+
+    cpplua_delete_variant(_var);
+  }
+
+  _c_cb(&_args, &_results);
+
+  // push results
+  for(int i = 0; i < _results.get_var_count(); i++){
+    variant* _var = cpplua_create_var_copy(_results.get_var(i));
+    _var->push_to_stack(_this->_this_state);
+
+    delete _var;
+  }
+
+  return _results.get_var_count();
+}
 
 void func_db::_hook_cb(lua_State* state, void* cbdata){
   func_db* _this = (func_db*)cbdata;
@@ -166,4 +203,72 @@ bool func_db::remove_lua_function_def(const char* function_name){
     return false;
     
   return _lua_delete_metadata(function_name);
+}
+
+bool func_db::remove_c_function_def(const char* function_name){
+  if(!_this_state)
+    return false;
+
+  return _c_delete_metadata(function_name);
+}
+
+
+bool func_db::expose_c_function_nonstrict(const char* function_name, function_cb cb){
+  if(!_this_state)
+    return false;
+
+  std::string _fname_stdstr = function_name;
+  _c_func_metadata* _metadata = _c_get_metadata(_fname_stdstr);
+  _metadata->function_address = (void*)cb;
+
+  // upval 1 - c function reference
+  lua_pushlstring(_this_state, _fname_stdstr.c_str(), _fname_stdstr.size());
+  
+  lua_pushcclosure(_this_state, _c_function_cb_nonstrict, 1);
+  lua_setglobal(_this_state, function_name);
+
+  return true;
+}
+
+
+bool func_db::call_lua_function_nonstrict(const char* function_name, const lua::I_vararr* args, lua::I_vararr* results){
+  if(!_this_state)
+    return false;
+
+  int _type = lua_getglobal(_this_state, function_name);
+  if(_type != LUA_TFUNCTION){
+    if(_current_logger){
+      _current_logger->print_error(format_str("[func_db] Cannot call function. Cause: '%s' is not a function.\n", function_name));
+    }
+
+    goto on_skip_label;
+  }
+
+  {// function calling
+    // push arguments
+    for(int i = 0; i < args->get_var_count(); i++){
+      variant* _var = cpplua_create_var_copy(args->get_var(i));
+      _var->push_to_stack(_this_state);
+
+      cpplua_delete_variant(_var); 
+    }
+
+    // call function
+    int _current_stack = lua_gettop(_this_state);
+    lua_call(_this_state, args->get_var_count(), LUA_MULTRET);
+    int _result_count = lua_gettop(_this_state) - _current_stack;
+
+    // get function results
+    for(int i = 0; i < _result_count; i++){
+      variant* _var = to_variant(_this_state, -(_result_count-i));
+      results->append_var(_var);
+
+      cpplua_delete_variant(_var); 
+    }
+  }
+  return true;
+
+  on_skip_label:{
+    lua_pop(_this_state, 1);
+  return false;}
 }

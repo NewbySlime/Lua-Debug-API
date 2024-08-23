@@ -5,7 +5,7 @@
 
 class I_debug_user{
   public:
-    virtual void set_logger(I_logger* logger){};
+    virtual void set_logger(I_logger* logger) = 0;
 };
 
 #endif

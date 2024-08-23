@@ -9,7 +9,7 @@ COMPILE_DEBUG_OPTIONS=
 CLUA_SOURCE_FOLDER= LuaSrc/*.c
 CPPLIB_SOURCE_FOLDER= Src/*.cpp
 
-MAIN_PROGRAM_FILE= TestSrc/DebuggerSrc/main.cpp
+MAIN_PROGRAM_FILE= TestSrc/test_global_print_override.cpp
 OUTPUT_FILE= main
 
 LINK_OPTION_FLAG= -static-libgcc -static-libstdc++
@@ -30,7 +30,7 @@ debug_mode: _add_debug_option
 	$(eval COMPILE_ADDED_SOURCE += $(CPPLIB_SOURCE_FOLDER))
 
 clua_debug_mode: _add_debug_option
-	$(eval COMMAND_COMPILE_CLUA = $(NIL_VAR))
+	$(eval COMMAND_COMPILE_LUA = $(NIL_VAR))
 	$(eval COMPILE_ADDED_SOURCE += $(CLUA_SOURCE_FOLDER))
 
 do_clean:
@@ -41,6 +41,14 @@ clua_compile:
 
 cpplib_lua_compile:
 	$(COMMAND_COMPILE_CPPLIB)
+
+skip_cpplib_compile:
+	$(eval COMMAND_COMPILE_CPPLIB = $(NIL_VAR))
+	$(eval CPPLIB_SOURCE_FOLDER = $(NIL_VAR))
+
+skip_clua_compile:
+	$(eval COMMAND_COMPILE_LUA = $(NIL_VAR))
+	$(eval CLUA_SOURCE_FOLDER = $(NIL_VAR))
 
 compile_main: 
 	g++ $(MAIN_PROGRAM_FILE) $(COMPILE_ADDED_SOURCE) $(LINK_OPTION_FLAG) ./*.o -o $(OUTPUT_FILE) -std=c++17 $(COMPILE_DEBUG_OPTIONS) $(MISC_COMPILE_OPTION)

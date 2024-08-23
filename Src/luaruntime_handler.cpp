@@ -10,6 +10,8 @@ using namespace lua::debug;
 
 
 
+// MARK: lua::runtime_handler
+
 runtime_handler::runtime_handler(lua_State* state){
   _create_own_lua_state = false;
 
@@ -145,20 +147,33 @@ runtime_handler* runtime_handler::get_attached_object(lua_State* state){
 }
 
 
-func_db* runtime_handler::get_function_database(){
-  return _function_database;
-}
-
 lua_State* runtime_handler::get_lua_state(){
   return _state;
 }
 
+
+func_db* runtime_handler::get_function_database(){
+  return _function_database;
+}
 
 hook_handler* runtime_handler::get_hook_handler(){
   return _hook_handler;
 }
 
 execution_flow* runtime_handler::get_execution_flow(){
+  return _execution_flow;
+}
+
+
+I_func_db* runtime_handler::get_function_database_interface(){
+  return _function_database;
+}
+
+I_hook_handler* runtime_handler::get_hook_handler_interface(){
+  return _hook_handler;
+}
+
+I_execution_flow* runtime_handler::get_execution_flow_interface(){
   return _execution_flow;
 }
 
@@ -200,7 +215,7 @@ bool runtime_handler::run_execution(execution_context cb, void* cbdata){
   return true;
 }
 
-bool runtime_handler::is_currently_executing(){
+bool runtime_handler::is_currently_executing() const{
   if(!_thread_handle)
     return false;
 
@@ -217,4 +232,20 @@ bool runtime_handler::is_currently_executing(){
 
 void runtime_handler::set_logger(I_logger* logger){
   _logger = logger;
+
+  _hook_handler->set_logger(logger);
+  _execution_flow->set_logger(logger);
+  _function_database->set_logger(logger);
+}
+
+
+
+// MARK: DLL functions
+
+DLLEXPORT lua::I_runtime_handler* cpplua_create_runtime_handler(const char* lua_path){
+  return new runtime_handler(lua_path);
+}
+
+DLLEXPORT void cpplua_delete_runtime_handler(I_runtime_handler* handler){
+  delete handler;
 }

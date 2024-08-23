@@ -10,6 +10,8 @@ using namespace lua::debug;
 
 #define LUD_EXECUTION_FLOW_VARNAME "__clua_execution_flow_data"
 
+#define FNAME_TAILCALLED_FLAG " (tailcalled)"
+
 
 // MARK: lua::debug::execution_flow
 execution_flow::execution_flow(lua_State* state){
@@ -47,9 +49,10 @@ execution_flow::~execution_flow(){
   _set_bind_obj(NULL, _this_state);
 
   while(_function_layer.size() > 0){
-    _function_data* _data = _function_layer.top();
-    _function_layer.pop();
-
+    auto _iter = _function_layer.end()-1;
+    _function_data* _data = *_iter;
+    
+    _function_layer.erase(_iter);
     delete _data;
   }
 
@@ -72,11 +75,14 @@ void execution_flow::_hookcb(){
   const lua_Debug* _debug_data = _hook_handler->get_current_debug_value();
 
   switch(_debug_data->event){
+    // Debug info does not track function name when it comes to tailcalling
     break; case LUA_HOOKTAILCALL:{
       if(_function_layer.size() <= 0)
         break;
 
-      _function_layer.top()->is_tailcall = true;
+      _function_data* _data = *(_function_layer.end()-1);
+      _data->is_tailcall = true;
+      _data->name += FNAME_TAILCALLED_FLAG;
     }
 
     break; case LUA_HOOKCALL:{
@@ -84,16 +90,17 @@ void execution_flow::_hookcb(){
       _new_data->name = _debug_data->name? _debug_data->name: "";
       _new_data->is_tailcall = false;
 
-      _function_layer.push(_new_data);
+      _function_layer.insert(_function_layer.end(), _new_data);
     }
 
     break; case LUA_HOOKRET:{
       if(_function_layer.size() <= 0)
         break;
 
-      _function_data* _data = _function_layer.top();
-      _function_layer.pop();
+      auto _iter = _function_layer.end()-1;
+      _function_data* _data = *_iter;
 
+      _function_layer.erase(_iter);
       delete _data;
     }
   }
@@ -167,7 +174,7 @@ void execution_flow::_hookcb_static(lua_State* state, void* cb_data){
 }
 
 
-execution_flow* execution_flow::get_attached_obj(lua_State* state){
+DLLEXPORT execution_flow* execution_flow::get_attached_obj(lua_State* state){
   execution_flow* _result = NULL;
 
   lua_getglobal(state, LUD_EXECUTION_FLOW_VARNAME);
@@ -212,12 +219,30 @@ unsigned int execution_flow::get_function_layer() const{
   return _function_layer.size();
 }
 
-std::string execution_flow::get_function_name() const{
+
+const char* execution_flow::get_function_name() const{
   if(_function_layer.size() <= 0)
     return "";
 
-  _function_data* _data = _function_layer.top();
-  return _data->name + (_data->is_tailcall? " (tailcalled)": "");
+  _function_data* _data = (*(_function_layer.end()-1));
+  
+  // Debug info does not track function name when it comes to tailcalling
+  return _data->name.c_str();
+}
+
+
+bool execution_flow::set_function_name(int layer_idx, const char* name){
+  return set_function_name(layer_idx, std::string(name));
+}
+
+bool execution_flow::set_function_name(int layer_idx, const std::string& name){
+  if(layer_idx < 0 || layer_idx >= _function_layer.size())
+    return false;
+
+  _function_data* _data = _function_layer[layer_idx];
+
+  _data->name = name + (_data->is_tailcall? FNAME_TAILCALLED_FLAG: "");
+  return true;
 }
 
 

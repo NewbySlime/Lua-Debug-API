@@ -4,6 +4,8 @@
 #include "I_logger.h"
 
 
+// This code will be statically bind to the compilation file
+
 class stdlogger: public I_logger{
   public:
     void print(std::string message) const override;

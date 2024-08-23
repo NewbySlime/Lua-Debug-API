@@ -4,6 +4,7 @@
 #include "I_debug_user.h"
 #include "lua_includes.h"
 #include "lua_str.h"
+#include "lua_vararr.h"
 #include "lua_variant.h"
 #include "luadebug_hookhandler.h"
 #include "strutil.h"
@@ -14,15 +15,35 @@
 #include "vector"
 
 
+// This code will be statically bind to the compilation file
+// If a code returns an interface (I_xx) create a copy with using statically linked compilation function if the code that returns comes from dynamic library
+
 namespace lua{
+  class I_func_db: public I_debug_user{
+    public:
+      typedef void (*function_cb)(const lua::I_vararr* args, lua::I_vararr* results);
+
+      virtual ~I_func_db(){}
+
+      virtual bool remove_lua_function_def(const char* function_name) = 0;
+      virtual bool remove_c_function_def(const char* function_name) = 0;
+
+      virtual bool expose_c_function_nonstrict(const char* function_name, function_cb cb) = 0;
+
+      virtual bool call_lua_function_nonstrict(const char* function_name, const I_vararr* args, I_vararr* results) = 0;
+  };
+
   // NOTE: lua_State shouldn't be destroyed in this class' lifetime
-  class func_db: I_debug_user{
+  class func_db: public I_func_db{
     private:
-      struct _func_metadata{
+      struct _lua_func_metadata{
         public:
           std::vector<int> _func_args_type;
-
           int _return_type;
+      };
+
+      struct _c_func_metadata{
+        public:
           void* function_address;
       };
 
@@ -57,22 +78,23 @@ namespace lua{
       debug::hook_handler* _hook_handler;
 
       lua_State* _this_state;
-      std::map<std::string, _func_metadata*> _lua_metadata_map;
-      std::map<std::string, _func_metadata*> _c_metadata_map;
+      std::map<std::string, _lua_func_metadata*> _lua_metadata_map;
+      std::map<std::string, _c_func_metadata*> _c_metadata_map;
 
       std::map<std::thread::id, std::string> _current_thread_funccall;
 
-      _func_metadata* _lua_create_metadata(const std::string& name);
-      _func_metadata* _lua_get_metadata(const std::string& name);
+      _lua_func_metadata* _lua_create_metadata(const std::string& name);
+      _lua_func_metadata* _lua_get_metadata(const std::string& name);
       bool _lua_delete_metadata(const std::string& name);
 
-      _func_metadata* _c_create_metadata(const std::string& name);
-      _func_metadata* _c_get_metadata(const std::string& name);
+      _c_func_metadata* _c_create_metadata(const std::string& name);
+      _c_func_metadata* _c_get_metadata(const std::string& name);
       bool _c_delete_metadata(const std::string& name);
 
 
-      variant* _call_function(int arg_count, int return_count, int msgh = 0);
+      lua::variant* _call_lua_function(int arg_count, int return_count, int msgh = 0);
 
+      static int _c_function_cb_nonstrict(lua_State* state);
       static void _hook_cb(lua_State* state, void* cbdata);
 
 
@@ -84,8 +106,12 @@ namespace lua{
 
       void set_logger(I_logger* logger) override;
 
-      bool remove_lua_function_def(const char* function_name);
+      bool remove_lua_function_def(const char* function_name) override;
+      bool remove_c_function_def(const char* function_name) override;
 
+      bool expose_c_function_nonstrict(const char* function_name, function_cb cb) override;
+
+      bool call_lua_function_nonstrict(const char* function_name, const lua::I_vararr* args, lua::I_vararr* results) override;
 
 
     private:
@@ -98,6 +124,7 @@ namespace lua{
 
 
     public:
+      // strict arguments and result type
       template<typename var_result, typename... var_args> bool expose_lua_function(const char* function_name){
         if(!_this_state)
           return false;
@@ -111,7 +138,7 @@ namespace lua{
           goto on_error_label;
         }
 
-        {_func_metadata* _metadata = _lua_create_metadata(function_name);
+        {_lua_func_metadata* _metadata = _lua_create_metadata(function_name);
           _metadata->_func_args_type.clear();
 
           _metadata->_return_type = var_result::get_static_lua_type();
@@ -129,6 +156,7 @@ namespace lua{
         return false;}
       }
 
+      // strict arguments and result type
       template<typename var_result, typename... var_args> bool expose_c_function(const char* function_name, var_result (*function_cb)(var_args...)){
         if(!_this_state)
           return false;
@@ -142,15 +170,15 @@ namespace lua{
           return false;
         }
 
-        _func_metadata* _metadata = _c_create_metadata(function_name);
-        _metadata->function_address = (void*)function_cb; 
+        _c_func_metadata* _metadata = _c_create_metadata(function_name);
+        _metadata->function_address = (void*)function_cb;
 
         lua_pushcclosure(_this_state, [](lua_State* state){
           func_db* _db = get_state_db(state);
           std::string _fname = _db->_current_thread_funccall[std::this_thread::get_id()];
 
           typedef var_result (*func_cb_type)(var_args...);
-          _func_metadata* _metadata = _db->_c_get_metadata(_fname);
+          _c_func_metadata* _metadata = _db->_c_get_metadata(_fname);
           var_result (*func_cb)(var_args...) = (func_cb_type)_metadata->function_address;
 
           const int _arg_size = sizeof...(var_args);
@@ -216,7 +244,7 @@ namespace lua{
             _curr_idx++;
           }(), ...);
 
-          return _call_function(_curr_idx, _iter->second->_return_type != LUA_TNIL);
+          return _call_lua_function(_curr_idx, _iter->second->_return_type != LUA_TNIL);
         }
         
         on_error_label:{

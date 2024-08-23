@@ -51,12 +51,18 @@ int main(){
   func_db* _f_db = _handler.get_function_database();
   _f_db->expose_lua_function<nil_var, number_var>("test_loop");
 
+  _exec_flow->block_execution();
   _handler.run_execution(
     _test_cb,
     &_handler
   );
   
-  _exec_flow->block_execution();
+  // wait until pausing
+  while(!_exec_flow->currently_pausing() && _handler.is_currently_executing())
+    Sleep(10);
+
+  _exec_flow->set_function_name(0, "test_loop");
+
   while(true){
     while(!_exec_flow->currently_pausing() && _handler.is_currently_executing())
       Sleep(10);
@@ -66,7 +72,7 @@ int main(){
     
     const lua_Debug* _dbg_data = _exec_flow->get_debug_data();
     printf("Current line %d\n", _dbg_data->currentline);
-    printf("Function name %s\n", _exec_flow->get_function_name().c_str());
+    printf("Function name %s\n", _exec_flow->get_function_name());
     char _key = _get_char();
     _erase_lines_from_bottom(3);
 

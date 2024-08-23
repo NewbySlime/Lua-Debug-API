@@ -10,6 +10,8 @@
 #include "thread"
 #include "set"
 
+#define BASE_VARIANT_TYPE_NAME "nil"
+
 #define NUM_VAR_EQUAL_ROUND_COMP 0.01
 
 
@@ -35,6 +37,15 @@ variant::variant(){}
 
 int variant::get_type() const{
   return LUA_TNIL;
+}
+
+
+void variant::to_string(I_string_store* pstring) const{
+  pstring->append(BASE_VARIANT_TYPE_NAME);
+}
+
+std::string variant::to_string() const{
+  return BASE_VARIANT_TYPE_NAME;
 }
 
 
@@ -164,6 +175,11 @@ int string_var::get_type() const{
 }
 
 
+string_var* string_var::create_copy_static(const I_string_var* data){
+  return new string_var(data->get_string(), data->get_length());
+}
+
+
 bool string_var::from_state(lua_State* state, int stack_idx){
   int _type = lua_type(state, stack_idx);
   switch(_type){
@@ -197,6 +213,10 @@ variant* string_var::create_copy() const{
   return new string_var(_str_mem, _mem_size);
 }
 
+
+void string_var::to_string(I_string_store* pstring) const{
+  return pstring->append(_str_mem, _mem_size);
+}
 
 std::string string_var::to_string() const{
   return std::string(_str_mem, _mem_size);
@@ -289,11 +309,11 @@ void string_var::append(const char* cstr, size_t len){
 }
 
 
-const char* string_var::get_str_data() const{
+const char* string_var::get_string() const{
   return _str_mem;
 }
 
-size_t string_var::get_str_len() const{
+size_t string_var::get_length() const{
   return _mem_size;
 }
 
@@ -345,6 +365,11 @@ int number_var::get_type() const{
 }
 
 
+number_var* number_var::create_copy_static(const I_number_var* data){
+  return new number_var(data->get_number());
+}
+
+
 bool number_var::from_state(lua_State* state, int stack_idx){
   _this_data = 0;
 
@@ -375,6 +400,11 @@ variant* number_var::create_copy() const{
 }
 
 
+void number_var::to_string(I_string_store* data) const{
+  std::string _str_data = to_string();
+  data->append(_str_data.c_str());
+}
+
 std::string number_var::to_string() const{
   int _str_len = snprintf(NULL, 0, "%f", _this_data);
   
@@ -390,6 +420,10 @@ std::string number_var::to_string() const{
 
 double number_var::get_number() const{
   return _this_data;
+}
+
+void number_var::set_number(double num){
+  _this_data = num;
 }
 
 
@@ -508,6 +542,11 @@ int bool_var::get_type() const{
 }
 
 
+bool_var* bool_var::create_copy_static(const I_bool_var* data){
+  return new bool_var(data->get_boolean());
+}
+
+
 bool bool_var::from_state(lua_State* state, int stack_idx){
   _this_data = true;
 
@@ -538,8 +577,23 @@ variant* bool_var::create_copy() const{
 }
 
 
+#define BOOL_VAR_TO_STRING(b) b? "true": "false" 
+
+void bool_var::to_string(I_string_store* data) const{
+  return data->append(BOOL_VAR_TO_STRING(_this_data));
+}
+
 std::string bool_var::to_string() const{
-  return _this_data? "true": "false";
+  return BOOL_VAR_TO_STRING(_this_data);
+}
+
+
+bool bool_var::get_boolean() const{
+  return _this_data;
+}
+
+void bool_var::set_boolean(bool b){
+  _this_data = b;
 }
 
 
@@ -616,12 +670,16 @@ table_var::table_var(lua_State* state, int stack_idx){
 
 table_var::~table_var(){
   _clear_table_data();
+
+  free(_keys_buffer);
 }
 
 
 void table_var::_init_class(){
   if(!_sr_data_map)
     _sr_data_map = new std::map<std::thread::id, _self_reference_data*>();
+
+  _keys_buffer = (const I_variant**)malloc(0);
 }
 
 
@@ -702,9 +760,86 @@ variant* table_var::_get_value(const comparison_variant& comp_var) const{
   return _iter->second;
 }
 
+I_variant* table_var::_get_value(const I_variant* key) const{
+  variant* _key_data = cpplua_create_var_copy(key);
+  comparison_variant _key_comp(_key_data); delete _key_data;
+  
+  return _get_value(_key_data);
+}
+
+
+void table_var::_set_value(const comparison_variant& comp_key, const variant* value){
+  _remove_value(comp_key);
+  _table_data[comp_key] = value->create_copy();
+
+  _update_keys_reg();
+}
+
+void table_var::_set_value(const I_variant* key, const I_variant* value){
+  variant* _key_data = cpplua_create_var_copy(key);
+  comparison_variant _key_comp(_key_data);
+
+  variant* _value_data = cpplua_create_var_copy(value);
+  _set_value(_key_comp, _value_data);
+
+  delete _key_data;
+  delete _value_data;
+}
+
+
+bool table_var::_remove_value(const comparison_variant& comp_key){
+  auto _check_iter = _table_data.find(comp_key);
+  if(_check_iter == _table_data.end())
+    return false;
+
+  delete _check_iter->second;
+  _table_data.erase(comp_key);
+
+  _update_keys_reg();
+  return true;
+}
+
+bool table_var::_remove_value(const I_variant* key){
+  variant* _key_data = cpplua_create_var_copy(key);
+  comparison_variant _key_comp(_key_data); delete _key_data;
+
+  return _remove_value(_key_comp);
+}
+
+
+void table_var::_update_keys_reg(){
+  _keys_buffer = (const I_variant**)realloc(_keys_buffer, (_table_data.size()+1) * sizeof(I_variant*));
+
+  int _idx = 0;
+  for(auto _pair: _table_data){
+    _keys_buffer[_idx] = _pair.first.get_comparison_data();
+
+    _idx++;
+  }
+
+  _keys_buffer[_table_data.size()] = NULL;
+}
+
 
 int table_var::get_type() const{
   return LUA_TTABLE;
+}
+
+
+table_var* table_var::create_copy_static(const I_table_var* data){
+  table_var* _result = new table_var();
+  const I_variant** _key_arr = data->get_keys();
+
+  int _idx = 0;
+  while(_key_arr[_idx]){
+    const I_variant* _key_data = _key_arr[_idx];
+    const I_variant* _value_data = data->get_value(_key_data);
+    _result->set_value(_key_data, _value_data);
+
+    _idx++;
+  }
+
+  return _result;
 }
 
 
@@ -763,8 +898,19 @@ variant* table_var::create_copy() const{
 }
 
 
+#define TABLE_VAR_TO_STRING() "table"
+
+void table_var::to_string(I_string_store* pstring) const{
+  pstring->append(TABLE_VAR_TO_STRING());
+}
+
 std::string table_var::to_string() const{
-  return "table";
+  return TABLE_VAR_TO_STRING();
+}
+
+
+const I_variant** table_var::get_keys() const{
+  return _keys_buffer;
 }
 
 
@@ -772,25 +918,35 @@ variant* table_var::get_value(const comparison_variant& comp_var){
   return _get_value(comp_var);
 }
 
+I_variant* table_var::get_value(const I_variant* key){
+  return _get_value(key);
+}
+
+
 const variant* table_var::get_value(const comparison_variant& comp_var) const{
   return _get_value(comp_var);
 }
 
-
-void table_var::set_value(const comparison_variant& comp_var, variant* value){
-  remove_value(comp_var);
-  _table_data[comp_var] = value->create_copy();
+const I_variant* table_var::get_value(const I_variant* key) const{
+  return _get_value(key);
 }
 
+
+void table_var::set_value(const comparison_variant& comp_var, variant* value){
+  _set_value(comp_var, value);
+}
+
+void table_var::set_value(const I_variant* key, const I_variant* data){
+  _set_value(key, data);
+}
+
+
 bool table_var::remove_value(const comparison_variant& comp_var){
-  auto _check_iter = _table_data.find(comp_var);
-  if(_check_iter == _table_data.end())
-    return false;
+  return _remove_value(comp_var);
+}
 
-  delete _check_iter->second;
-  _table_data.erase(_check_iter);
-
-  return true;
+bool table_var::remove_value(const I_variant* key){
+  return _remove_value(key);
 }
 
 
@@ -832,6 +988,11 @@ int lightuser_var::get_type() const{
 }
 
 
+lightuser_var* lightuser_var::create_copy_static(const I_lightuser_var* data){
+  return new lightuser_var(data->get_data());
+}
+
+
 bool lightuser_var::from_state(lua_State* state, int stack_idx){
   int _type = lua_type(state, stack_idx);
   if(_type != get_type()){
@@ -857,17 +1018,24 @@ variant* lightuser_var::create_copy() const{
 }
 
 
+#define LIGHTUSER_VAR_TO_STRING(ptr) format_str("lud 0x%X", ptr)
+
+void lightuser_var::to_string(I_string_store* pstring) const{
+  pstring->append(LIGHTUSER_VAR_TO_STRING(_pointer_data).c_str());
+}
+
 std::string lightuser_var::to_string() const{
-  return format_str("lud 0x%X", _pointer_data);
+  return LIGHTUSER_VAR_TO_STRING(_pointer_data);
 }
 
 
-const void* lightuser_var::get_data() const{
+void* lightuser_var::get_data() const{
   return _pointer_data;
 }
 
-void* lightuser_var::get_data(){
-  return _pointer_data;
+
+void lightuser_var::set_data(void* data){
+  _pointer_data = data;
 }
 
 
@@ -915,13 +1083,34 @@ error_var::error_var(const error_var& var){
   _error_code = var._error_code;
 }
 
+error_var::error_var(const variant* data, int code){
+  _err_data = data->create_copy();
+  _error_code = code;
+}
+
 error_var::error_var(lua_State* state, int stack_idx){
   from_state(state, stack_idx);
+}
+
+error_var::~error_var(){
+  if(_err_data)
+    delete _err_data;
 }
 
 
 int error_var::get_type() const{
   return LUA_TERROR;
+}
+
+
+error_var* error_var::create_copy_static(const I_error_var* data){
+  const I_variant* _idata = data->get_error_data_interface();
+  variant* _new_data = cpplua_create_var_copy(_idata);
+
+  error_var* _result = new error_var(_new_data, data->get_error_code());
+  delete _new_data;
+
+  return _result;
 }
 
 
@@ -945,6 +1134,11 @@ variant* error_var::create_copy() const{
 }
 
 
+void error_var::to_string(I_string_store* pstring) const{
+  std::string _str = to_string();
+  pstring->append(_str.c_str());
+}
+
 std::string error_var::to_string() const{
   if(!_err_data)
     return "nil";
@@ -957,6 +1151,11 @@ std::string error_var::to_string() const{
 const variant* error_var::get_error_data() const{
   return _err_data;
 }
+
+const I_variant* error_var::get_error_data_interface() const{
+  return _err_data;
+}
+
 
 int error_var::get_error_code() const{
   return _error_code;
@@ -1104,6 +1303,44 @@ string_var lua::from_pointer_to_str(void* pointer){
 
 // MARK: lua::from_str_to_pointer
 void* lua::from_str_to_pointer(const string_var& str){
-  long long _pointer_num = *(reinterpret_cast<const long long*>(str.get_str_data()));
+  long long _pointer_num = *(reinterpret_cast<const long long*>(str.get_string()));
   return (void*)_pointer_num;
+}
+
+
+
+// MARK: DLL functions
+
+DLLEXPORT void cpplua_variant_set_default_logger(I_logger* _logger){
+  set_default_logger(_logger);
+}
+
+
+DLLEXPORT lua::variant* cpplua_create_var_copy(const lua::I_variant* data){
+  switch(data->get_type()){
+    break; case string_var::get_static_lua_type():
+      return string_var::create_copy_static(reinterpret_cast<const I_string_var*>(data));
+
+    break; case number_var::get_static_lua_type():
+      return number_var::create_copy_static(reinterpret_cast<const I_number_var*>(data));
+
+    break; case bool_var::get_static_lua_type():
+      return bool_var::create_copy_static(reinterpret_cast<const I_bool_var*>(data));
+
+    break; case table_var::get_static_lua_type():
+      return table_var::create_copy_static(reinterpret_cast<const I_table_var*>(data));
+
+    break; case lightuser_var::get_static_lua_type():
+      return lightuser_var::create_copy_static(reinterpret_cast<const I_lightuser_var*>(data));
+
+    break; case error_var::get_static_lua_type():
+      return error_var::create_copy_static(reinterpret_cast<const I_error_var*>(data));
+
+    break; default:
+      return new nil_var();
+  }
+}
+
+DLLEXPORT void cpplua_delete_variant(const lua::I_variant* data){
+  delete data;
 }

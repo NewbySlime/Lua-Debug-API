@@ -1,0 +1,1 @@
+// see linit.c for library handling
