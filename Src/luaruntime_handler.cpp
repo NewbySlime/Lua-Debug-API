@@ -51,7 +51,7 @@ runtime_handler::runtime_handler(const std::string& lua_path){
     std::string _err_str = _var->to_string();
 
     delete _var;
-    _logger->print(format_str("Cannot open lua file '%s' Error: %s\n", lua_path.c_str(), _err_str.c_str()));
+    _logger->print_error(format_str("Cannot open lua file '%s' Error: %s\n", lua_path.c_str(), _err_str.c_str()));
 
     lua_close(_created_state);
     return;
@@ -151,6 +151,10 @@ lua_State* runtime_handler::get_lua_state(){
   return _state;
 }
 
+void* runtime_handler::get_lua_state_interface(){
+  return _state;
+}
+
 
 func_db* runtime_handler::get_function_database(){
   return _function_database;
@@ -242,10 +246,10 @@ void runtime_handler::set_logger(I_logger* logger){
 
 // MARK: DLL functions
 
-DLLEXPORT lua::I_runtime_handler* cpplua_create_runtime_handler(const char* lua_path){
+DLLEXPORT lua::I_runtime_handler* CPPLUA_CREATE_RUNTIME_HANDLER(const char* lua_path){
   return new runtime_handler(lua_path);
 }
 
-DLLEXPORT void cpplua_delete_runtime_handler(I_runtime_handler* handler){
+DLLEXPORT void CPPLUA_DELETE_RUNTIME_HANDLER(I_runtime_handler* handler){
   delete handler;
 }

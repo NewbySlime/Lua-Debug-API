@@ -11,6 +11,8 @@ using namespace lua;
 using namespace lua::global;
 
 
+// MARK: lua::global::print_override
+
 print_override::print_override(lua_State* state){
   _this_state = NULL;
   _logger = get_stdlogger();
@@ -31,7 +33,7 @@ print_override::print_override(lua_State* state){
   _set_bind_obj(this, _this_state);
 
 #if _WIN64
-  _event_handle = CreateEvent(NULL, TRUE, FALSE, NULL);
+  _event_handle = CreateEvent(NULL, FALSE, FALSE, NULL);
   CreatePipe(&_pipe_read, &_pipe_write, NULL, 0);
 #endif
 
@@ -125,11 +127,10 @@ unsigned long print_override::read_n(char* buffer, unsigned long buffer_size){
   return _result;
 }
 
-std::string print_override::read_all(){
+
+unsigned long print_override::read_all(I_string_store* store){
   unsigned long _data_len = available_bytes();
   char* _tmp_buf = (char*)malloc(_data_len);
-
-  std::string _result;
 
 #if _WIN64
   unsigned long _read_len;
@@ -140,9 +141,31 @@ std::string print_override::read_all(){
     &_read_len,
     NULL
   );
-
-  _result = std::string(_tmp_buf, _read_len);
 #endif
+  
+  store->append(_tmp_buf, _read_len);
+
+  free(_tmp_buf);
+  return _read_len;
+}
+
+std::string print_override::read_all(){
+  unsigned long _data_len = available_bytes();
+  char* _tmp_buf = (char*)malloc(_data_len);
+
+  unsigned long _read_len;
+  
+#if _WIN64
+  ReadFile(
+    _pipe_read,
+    _tmp_buf,
+    _data_len,
+    &_read_len,
+    NULL
+  );
+#endif
+
+  std::string _result = std::string(_tmp_buf, _read_len);
 
   free(_tmp_buf);
   return _result;
@@ -166,11 +189,33 @@ unsigned long print_override::peek_n(char* buffer, unsigned long buffer_size){
   return _result;
 }
 
+
+unsigned long print_override::peek_all(I_string_store* store){
+  unsigned long _data_len = available_bytes();
+  char* _tmp_buf = (char*)malloc(_data_len);
+
+  unsigned long _read_len;
+
+#if _WIN64
+  PeekNamedPipe(
+    _pipe_read,
+    _tmp_buf,
+    _data_len,
+    &_read_len,
+    NULL,
+    NULL
+  );
+#endif
+
+  store->append(_tmp_buf, _read_len);
+
+  free(_tmp_buf);
+  return _read_len;
+}
+
 std::string print_override::peek_all(){
   unsigned long _data_len = available_bytes();
   char* _tmp_buf = (char*)malloc(_data_len);
-  
-  std::string _result;
 
 #if _WIN64
   unsigned long _read_len;
@@ -182,9 +227,9 @@ std::string print_override::peek_all(){
     NULL,
     NULL
   );
-
-  _result = std::string(_tmp_buf, _read_len);
 #endif
+
+  std::string _result = std::string(_tmp_buf, _read_len);
 
   free(_tmp_buf);
   return _result;
@@ -218,4 +263,16 @@ HANDLE print_override::get_event_handle(){
 
 void print_override::set_logger(I_logger* logger){
   _logger = logger;
+}
+
+
+
+// MARK: DLL functions
+
+DLLEXPORT lua::global::I_print_override* CPPLUA_CREATE_GLOBAL_PRINT_OVERRIDE(void* state){
+  return new print_override((lua_State*)state);
+}
+
+DLLEXPORT void CPPLUA_DELETE_GLOBAL_PRINT_OVERRIDE(lua::global::I_print_override* obj){
+  delete obj;
 }

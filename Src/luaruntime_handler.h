@@ -8,6 +8,7 @@
 #include "luadebug_executionflow.h"
 #include "luafunction_database.h"
 #include "library_linking.h"
+#include "macro_helper.h"
 
 #if _WIN64
 #include "Windows.h"
@@ -20,6 +21,8 @@ namespace lua{
       typedef void (*execution_context)(void* data);
 
       virtual ~I_runtime_handler(){}
+
+      virtual void* get_lua_state_interface() = 0;
 
       virtual lua::I_func_db* get_function_database_interface() = 0;
       virtual lua::debug::I_hook_handler* get_hook_handler_interface() = 0;
@@ -75,6 +78,7 @@ namespace lua{
       static runtime_handler* get_attached_object(lua_State* state);
 
       lua_State* get_lua_state();
+      void* get_lua_state_interface() override;
 
       lua::func_db* get_function_database();
       lua::debug::hook_handler* get_hook_handler();
@@ -93,7 +97,14 @@ namespace lua{
   };
 }
 
-lua::I_runtime_handler* cpplua_create_runtime_handler(const char* lua_path);
-void cpplua_delete_runtime_handler(lua::I_runtime_handler* handler);
+
+#define CPPLUA_CREATE_RUNTIME_HANDLER cpplua_create_runtime_handler
+#define CPPLUA_CREATE_RUNTIME_HANDLER_STR MACRO_TO_STR_EXP(CPPLUA_CREATE_RUNTIME_HANDLER)
+
+#define CPPLUA_DELETE_RUNTIME_HANDLER cpplua_delete_runtime_handler
+#define CPPLUA_DELETE_RUNTIME_HANDLER_STR MACRO_TO_STR_EXP(CPPLUA_DELETE_RUNTIME_HANDLER)
+
+typedef lua::I_runtime_handler* (__stdcall *rh_create_func)(const char* lua_path);
+typedef void (__stdcall *rh_delete_func)(lua::I_runtime_handler* handler);
 
 #endif

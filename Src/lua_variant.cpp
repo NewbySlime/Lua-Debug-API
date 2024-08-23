@@ -1308,39 +1308,40 @@ void* lua::from_str_to_pointer(const string_var& str){
 }
 
 
+// MARK: Static functions
 
-// MARK: DLL functions
-
-DLLEXPORT void cpplua_variant_set_default_logger(I_logger* _logger){
-  set_default_logger(_logger);
-}
-
-
-DLLEXPORT lua::variant* cpplua_create_var_copy(const lua::I_variant* data){
+lua::variant* cpplua_create_var_copy(const lua::I_variant* data){
   switch(data->get_type()){
     break; case string_var::get_static_lua_type():
-      return string_var::create_copy_static(reinterpret_cast<const I_string_var*>(data));
+      return string_var::create_copy_static(dynamic_cast<const I_string_var*>(data));
 
     break; case number_var::get_static_lua_type():
-      return number_var::create_copy_static(reinterpret_cast<const I_number_var*>(data));
+      return number_var::create_copy_static(dynamic_cast<const I_number_var*>(data));
 
     break; case bool_var::get_static_lua_type():
-      return bool_var::create_copy_static(reinterpret_cast<const I_bool_var*>(data));
+      return bool_var::create_copy_static(dynamic_cast<const I_bool_var*>(data));
 
     break; case table_var::get_static_lua_type():
-      return table_var::create_copy_static(reinterpret_cast<const I_table_var*>(data));
+      return table_var::create_copy_static(dynamic_cast<const I_table_var*>(data));
 
     break; case lightuser_var::get_static_lua_type():
-      return lightuser_var::create_copy_static(reinterpret_cast<const I_lightuser_var*>(data));
+      return lightuser_var::create_copy_static(dynamic_cast<const I_lightuser_var*>(data));
 
     break; case error_var::get_static_lua_type():
-      return error_var::create_copy_static(reinterpret_cast<const I_error_var*>(data));
+      return error_var::create_copy_static(dynamic_cast<const I_error_var*>(data));
 
     break; default:
       return new nil_var();
   }
 }
 
-DLLEXPORT void cpplua_delete_variant(const lua::I_variant* data){
+
+// MARK: DLL functions
+
+DLLEXPORT void CPPLUA_VARIANT_SET_DEFAULT_LOGGER(I_logger* _logger){
+  set_default_logger(_logger);
+}
+
+DLLEXPORT void CPPLUA_DELETE_VARIANT(const lua::I_variant* data){
   delete data;
 }

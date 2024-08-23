@@ -3,7 +3,9 @@
 #define LUASTREAM_PRINT_OVERRIDE_HEADER
 
 #include "I_debug_user.h"
+#include "library_linking.h"
 #include "lua_includes.h"
+#include "string_store.h"
 
 #if _WIN64
 #include "Windows.h"
@@ -11,7 +13,24 @@
 
 
 namespace lua::global{
-  class print_override: I_debug_user{
+  class I_print_override: public I_debug_user{
+    public:
+      virtual ~I_print_override(){}
+
+      virtual unsigned long read_n(char* buffer, unsigned long buffer_size) = 0;
+      virtual unsigned long read_all(I_string_store* store) = 0;
+
+      virtual unsigned long peek_n(char* buffer, unsigned long buffer_size) = 0;
+      virtual unsigned long peek_all(I_string_store* store) = 0;
+
+      virtual unsigned long available_bytes() = 0;
+
+#if _WIN64
+      virtual HANDLE get_event_handle() = 0;
+#endif
+  };
+
+  class print_override: public I_print_override{
     private:
 #if _WIN64
       HANDLE _event_handle;
@@ -34,20 +53,36 @@ namespace lua::global{
 
       static print_override* get_attached_object(lua_State* state);
 
-      unsigned long read_n(char* buffer, unsigned long buffer_size);
+      unsigned long read_n(char* buffer, unsigned long buffer_size) override;
+
+      unsigned long read_all(I_string_store* store) override;
       std::string read_all();
 
-      unsigned long peek_n(char* buffer, unsigned long buffer_size);
+      unsigned long peek_n(char* buffer, unsigned long buffer_size) override;
+
+      unsigned long peek_all(I_string_store* store) override;
       std::string peek_all();
 
-      unsigned long available_bytes();
+      unsigned long available_bytes() override;
 
 #if _WIN64
-      HANDLE get_event_handle();
+      HANDLE get_event_handle() override;
 #endif
 
       void set_logger(I_logger* logger) override;
   };
 }
+
+
+// MARK: DLL functions
+
+#define CPPLUA_CREATE_GLOBAL_PRINT_OVERRIDE cpplua_create_global_print_override
+#define CPPLUA_CREATE_GLOBAL_PRINT_OVERRIDE_STR MACRO_TO_STR_EXP(CPPLUA_CREATE_GLOBAL_PRINT_OVERRIDE)
+
+#define CPPLUA_DELETE_GLOBAL_PRINT_OVERRIDE cpplua_delete_global_print_override
+#define CPPLUA_DELETE_GLOBAL_PRINT_OVERRIDE_STR MACRO_TO_STR_EXP(CPPLUA_DELETE_GLOBAL_PRINT_OVERRIDE)
+
+typedef lua::global::I_print_override* (__stdcall *gpo_create_func)(void* state);
+typedef void (__stdcall *gpo_delete_func)(lua::global::I_print_override* obj);
 
 #endif

@@ -4,6 +4,7 @@
 #include "I_logger.h"
 #include "library_linking.h"
 #include "lua_includes.h"
+#include "macro_helper.h"
 #include "string_store.h"
 
 #include "map"
@@ -472,9 +473,28 @@ namespace lua{
   void* from_str_to_pointer(const string_var& str);
 }
 
-void cpplua_variant_set_default_logger(I_logger* _logger);
+
+
+// MARK: Static functions
 
 lua::variant* cpplua_create_var_copy(const lua::I_variant* data);
-void cpplua_delete_variant(const lua::I_variant* data);
+
+
+
+// MARK: DLL functions
+
+#define CPPLUA_VARIANT_SET_DEFAULT_LOGGER cpplua_variant_set_default_logger
+#define CPPLUA_VARIANT_SET_DEFAULT_LOGGER_STR MACRO_TO_STR_EXP(CPPLUA_VARIANT_SET_DEFAULT_LOGGER)
+
+#define CPPLUA_DELETE_VARIANT cpplua_delete_variant
+#define CPPLUA_DELETE_VARIANT_STR MACRO_TO_STR_EXP(CPPLUA_DELETE_VARIANT)
+
+typedef void (__stdcall *var_set_def_logger_func)(I_logger* logger);
+typedef void (__stdcall *del_var_func)(const lua::I_variant* data);
+
+DLLEXPORT void CPPLUA_VARIANT_SET_DEFAULT_LOGGER(I_logger* logger);
+DLLEXPORT void CPPLUA_DELETE_VARIANT(const lua::I_variant* data);
+
+
 
 #endif

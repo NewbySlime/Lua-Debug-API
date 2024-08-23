@@ -219,6 +219,15 @@ bool func_db::expose_c_function_nonstrict(const char* function_name, function_cb
 
   std::string _fname_stdstr = function_name;
   _c_func_metadata* _metadata = _c_get_metadata(_fname_stdstr);
+  if(_metadata){
+    if(_current_logger){
+      _current_logger->print_error(format_str("[func_db] Cannot expose C function '%s'. Reason: another function with the same name already exposed."));
+    }
+
+    return false;
+  }
+
+  _metadata = _c_create_metadata(_fname_stdstr);
   _metadata->function_address = (void*)cb;
 
   // upval 1 - c function reference
@@ -235,10 +244,11 @@ bool func_db::call_lua_function_nonstrict(const char* function_name, const lua::
   if(!_this_state)
     return false;
 
+  int _current_stack = lua_gettop(_this_state);
   int _type = lua_getglobal(_this_state, function_name);
   if(_type != LUA_TFUNCTION){
     if(_current_logger){
-      _current_logger->print_error(format_str("[func_db] Cannot call function. Cause: '%s' is not a function.\n", function_name));
+      _current_logger->print_error(format_str("[func_db] Cannot call function. Reason: '%s' is not a function.\n", function_name));
     }
 
     goto on_skip_label;
@@ -254,7 +264,6 @@ bool func_db::call_lua_function_nonstrict(const char* function_name, const lua::
     }
 
     // call function
-    int _current_stack = lua_gettop(_this_state);
     lua_call(_this_state, args->get_var_count(), LUA_MULTRET);
     int _result_count = lua_gettop(_this_state) - _current_stack;
 
@@ -263,8 +272,11 @@ bool func_db::call_lua_function_nonstrict(const char* function_name, const lua::
       variant* _var = to_variant(_this_state, -(_result_count-i));
       results->append_var(_var);
 
-      cpplua_delete_variant(_var); 
+      cpplua_delete_variant(_var);
     }
+
+    // pop function results
+    lua_pop(_this_state, _result_count);
   }
   return true;
 
