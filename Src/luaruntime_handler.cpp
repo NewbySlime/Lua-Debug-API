@@ -3,6 +3,7 @@
 #include "stdlogger.h"
 
 #define LUD_RUNTIME_HANDLER_VAR_NAME "__clua_runtime_handler"
+#define LUD_RUNTIME_HANDLER_LUA_CHUNK_FUNC "__clua_runtime_handler_main_func"
 
 
 using namespace lua;
@@ -24,7 +25,7 @@ runtime_handler::runtime_handler(lua_State* state){
 
   runtime_handler* _current_handler = get_attached_object(state);
   if(_current_handler){
-    _logger->print_error("Cannot create runtime_handler. Reason: lua_State already has runtime_handler.\n");
+    _logger->print_error("[runtime_handler] Cannot intialize. Reason: lua_State already has runtime_handler.\n");
     return;
   }
 
@@ -32,32 +33,31 @@ runtime_handler::runtime_handler(lua_State* state){
   _initiate_class();
 }
 
-runtime_handler::runtime_handler(const std::string& lua_path){
-  _create_own_lua_state = true;
 
-  _logger = get_stdlogger();
-  _state = NULL;
+runtime_handler::runtime_handler(bool load_library){
+  _initiate_constructor();
+  if(load_library)
+    load_std_libs();
 
-#if _WIN64
-  _thread_handle = NULL;
-#endif
+  _initiate_class();
+}
 
-  lua_State* _created_state = luaL_newstate();
-  luaL_openlibs(_created_state);
-
-  int _res = luaL_dofile(_created_state, lua_path.c_str());
-  if(_res != LUA_OK){
-    lua::variant* _var = lua::to_variant(_created_state, -1);
-    std::string _err_str = _var->to_string();
-
-    delete _var;
-    _logger->print_error(format_str("Cannot open lua file '%s' Error: %s\n", lua_path.c_str(), _err_str.c_str()));
-
-    lua_close(_created_state);
-    return;
+runtime_handler::runtime_handler(const std::string& lua_path, bool immediate_run, bool load_library){
+  _initiate_constructor();
+  int _err_code;
+  if((_err_code = load_file(lua_path.c_str())) != LUA_OK && _logger){
+    _logger->print_error(format_str("[runtime_handler] Cannot load file '%s'. Error Code: %d\n", lua_path.c_str(), _err_code));
   }
 
-  _state = _created_state;
+  if(load_library)
+    load_std_libs();
+
+  if(immediate_run && _err_code == LUA_OK){
+    if((_err_code = run_current_file()) != LUA_OK && _logger){
+      _logger->print_error(format_str("[runtime_handler] Something went wrong when running lua file '%s'. Error Code: %d\n", lua_path.c_str(), _err_code));
+    }
+  }
+
   _initiate_class();
 }
 
@@ -82,6 +82,9 @@ runtime_handler::~runtime_handler(){
 
   if(_create_own_lua_state)
     lua_close(_state);
+
+  if(_last_err_obj)
+    delete _last_err_obj;
 }
 
 
@@ -100,6 +103,17 @@ DWORD runtime_handler::_thread_entry_point(LPVOID data){
 #endif
 
 
+void runtime_handler::_initiate_constructor(){
+  _create_own_lua_state = true;
+  
+  _logger = get_stdlogger();
+  _state = luaL_newstate();
+
+#if _WIN64
+  _thread_handle = NULL;
+#endif
+}
+
 void runtime_handler::_initiate_class(){
   _set_bind_obj(this, _state);
 
@@ -109,6 +123,15 @@ void runtime_handler::_initiate_class(){
   _execution_flow = new execution_flow(_state);
 
   _function_database = new func_db(_state);
+}
+
+
+void runtime_handler::_read_error_obj(){
+  if(_last_err_obj)
+    cpplua_delete_variant(_last_err_obj);
+
+  _last_err_obj = to_variant(_state, -1);
+  lua_pop(_state, 1);
 }
 
 
@@ -234,6 +257,45 @@ bool runtime_handler::is_currently_executing() const{
 }
 
 
+int runtime_handler::run_current_file(){
+  if(!_state)
+    return -1;
+
+  lua_getglobal(_state, LUD_RUNTIME_HANDLER_LUA_CHUNK_FUNC);
+  int _err_code = lua_pcall(_state, 0, 0, 0);
+  if(_err_code != LUA_OK)
+    _read_error_obj();
+  
+  return _err_code;
+}
+
+int runtime_handler::load_file(const char* lua_path){
+  if(!_state)
+    return -1;
+
+  int _err_code = luaL_loadfile(_state, lua_path);
+  if(_err_code != LUA_OK){
+    _read_error_obj();
+    return _err_code;
+  }
+
+  lua_setglobal(_state, LUD_RUNTIME_HANDLER_LUA_CHUNK_FUNC);
+  return LUA_OK;
+}
+
+void runtime_handler::load_std_libs(){
+  if(!_state)
+    return;
+
+  luaL_openlibs(_state);
+}
+
+
+const lua::I_variant* runtime_handler::get_last_error_object(){
+  return _last_err_obj;
+}
+
+
 void runtime_handler::set_logger(I_logger* logger){
   _logger = logger;
 
@@ -246,8 +308,11 @@ void runtime_handler::set_logger(I_logger* logger){
 
 // MARK: DLL functions
 
-DLLEXPORT lua::I_runtime_handler* CPPLUA_CREATE_RUNTIME_HANDLER(const char* lua_path){
-  return new runtime_handler(lua_path);
+DLLEXPORT lua::I_runtime_handler* CPPLUA_CREATE_RUNTIME_HANDLER(const char* lua_path, bool immediate_run, bool load_library){
+  if(lua_path)
+    return new runtime_handler(lua_path, immediate_run, load_library);
+  else
+    return new runtime_handler(load_library);
 }
 
 DLLEXPORT void CPPLUA_DELETE_RUNTIME_HANDLER(I_runtime_handler* handler){

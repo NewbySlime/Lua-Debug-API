@@ -31,6 +31,13 @@ namespace lua{
       virtual void stop_execution() = 0;
       virtual bool run_execution(execution_context cb, void* cbdata) = 0;
       virtual bool is_currently_executing() const = 0;
+
+      virtual int run_current_file() = 0;
+      virtual int load_file(const char* lua_path) = 0;
+      virtual void load_std_libs() = 0;
+
+      // can be NULL if no error from the start of the lua_State
+      virtual const lua::I_variant* get_last_error_object() = 0;
   };
 
 
@@ -61,9 +68,16 @@ namespace lua{
 
       lua::func_db* _function_database = NULL;
 
-      void _hookcb();
+      lua::variant* _last_err_obj = NULL;
 
+
+      void _initiate_constructor();
       void _initiate_class();
+
+      // get error object and pops the value from the stack
+      void _read_error_obj();
+      
+      void _hookcb();
 
       static void _set_bind_obj(runtime_handler* obj, lua_State* state);
 
@@ -71,7 +85,9 @@ namespace lua{
 
     public:
       runtime_handler(lua_State* state);
-      runtime_handler(const std::string& lua_path);
+
+      runtime_handler(bool load_library = true);
+      runtime_handler(const std::string& lua_path, bool immediate_run = true, bool load_library = true);
 
       ~runtime_handler();
 
@@ -92,6 +108,12 @@ namespace lua{
       bool run_execution(execution_context cb, void* cbdata) override;
       bool is_currently_executing() const override;
 
+      int run_current_file() override;
+      int load_file(const char* lua_path) override;
+      void load_std_libs() override;
+
+      const lua::I_variant* get_last_error_object() override;
+
       // NOTE: This will bind the logger to all tool membters in this object
       void set_logger(I_logger* logger) override;
   };
@@ -104,7 +126,8 @@ namespace lua{
 #define CPPLUA_DELETE_RUNTIME_HANDLER cpplua_delete_runtime_handler
 #define CPPLUA_DELETE_RUNTIME_HANDLER_STR MACRO_TO_STR_EXP(CPPLUA_DELETE_RUNTIME_HANDLER)
 
-typedef lua::I_runtime_handler* (__stdcall *rh_create_func)(const char* lua_path);
+// if lua_path is NULL, then the runtime_handler should only create empty lua_State
+typedef lua::I_runtime_handler* (__stdcall *rh_create_func)(const char* lua_path, bool immediate_run, bool load_library);
 typedef void (__stdcall *rh_delete_func)(lua::I_runtime_handler* handler);
 
 #endif

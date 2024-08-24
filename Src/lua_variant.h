@@ -464,9 +464,13 @@ namespace lua{
   };
 
 
-
+  // This will not pop the value.
   variant* to_variant(lua_State* state, int stack_idx);
+
+  // Get variant from determined global value. This will also pops the fetched value.
   variant* to_variant_fglobal(lua_State* state, const char* global_name);
+
+  // Pointer value (in lua) parsed to string variant.
   variant* to_variant_ref(lua_State* state, int stack_idx);
 
   string_var from_pointer_to_str(void* pointer);
