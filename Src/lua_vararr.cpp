@@ -38,6 +38,6 @@ void vararr::append_var(const I_variant* data){
 }
 
 
-size_t vararr::get_var_count() const{
+std::size_t vararr::get_var_count() const{
   return _data_arr.size();
 }

@@ -19,7 +19,7 @@ runtime_handler::runtime_handler(lua_State* state){
   _logger = get_stdlogger();
   _state = NULL;
 
-#if _WIN64
+#if (_WIN64) || (_WIN32)
   _thread_handle = NULL;
 #endif
 
@@ -88,8 +88,8 @@ runtime_handler::~runtime_handler(){
 }
 
 
-#if _WIN64
-DWORD runtime_handler::_thread_entry_point(LPVOID data){
+#if (_WIN64) || (_WIN32)
+DWORD __stdcall runtime_handler::_thread_entry_point(LPVOID data){
   _t_entry_point_data* _ep_data = (_t_entry_point_data*)data;
 
   execution_context _context = _ep_data->cb;
@@ -109,7 +109,7 @@ void runtime_handler::_initiate_constructor(){
   _logger = get_stdlogger();
   _state = luaL_newstate();
 
-#if _WIN64
+#if (_WIN64) || (_WIN32)
   _thread_handle = NULL;
 #endif
 }
@@ -140,7 +140,7 @@ void runtime_handler::_hookcb(){
   if(_debug_data->event != LUA_HOOKLINE)
     return;
 
-#if _WIN64
+#if (_WIN64) || (_WIN32)
   if(!_stop_thread || GetThreadId(_thread_handle) != GetCurrentThreadId())
     return;
 
@@ -209,7 +209,7 @@ void runtime_handler::stop_execution(){
   if(!_thread_handle)
     return;
 
-#if _WIN64
+#if (_WIN64) || (_WIN32)
   if(is_currently_executing()){
     _stop_thread = true;
     WaitForSingleObject(_thread_handle, INFINITE);
@@ -224,7 +224,7 @@ bool runtime_handler::run_execution(execution_context cb, void* cbdata){
   if(is_currently_executing())
     return false;
 
-#if _WIN64
+#if (_WIN64) || (_WIN32)
     _t_entry_point_data* _ep_data = new _t_entry_point_data();
     _ep_data->cb = cb;
     _ep_data->cbdata = cbdata;
@@ -246,7 +246,7 @@ bool runtime_handler::is_currently_executing() const{
   if(!_thread_handle)
     return false;
 
-#if _WIN64
+#if (_WIN64) || (_WIN32)
   DWORD _exit_code;
   BOOL _ret = GetExitCodeThread(_thread_handle, &_exit_code);
   if(!_ret)

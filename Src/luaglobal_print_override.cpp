@@ -17,7 +17,7 @@ print_override::print_override(lua_State* state){
   _this_state = NULL;
   _logger = get_stdlogger();
 
-#if _WIN64
+#if (_WIN64) || (_WIN32)
   _event_handle = NULL;
   _pipe_read = NULL;
   _pipe_write = NULL;
@@ -32,7 +32,7 @@ print_override::print_override(lua_State* state){
   _this_state = state;
   _set_bind_obj(this, _this_state);
 
-#if _WIN64
+#if (_WIN64) || (_WIN32)
   _event_handle = CreateEvent(NULL, FALSE, FALSE, NULL);
   CreatePipe(&_pipe_read, &_pipe_write, NULL, 0);
 #endif
@@ -46,7 +46,7 @@ print_override::~print_override(){
 
   _set_bind_obj(NULL, _this_state);
   
-#if _WIN64
+#if (_WIN64) || (_WIN32)
   CloseHandle(_event_handle);
   CloseHandle(_pipe_write);
   CloseHandle(_pipe_read);
@@ -85,7 +85,7 @@ int print_override::_on_print_static(lua_State* state){
 
   _combined_message += "\n";
 
-#if _WIN64
+#if (_WIN64) || (_WIN32)
   WriteFile(
     _obj->_pipe_write,
     _combined_message.c_str(),
@@ -114,7 +114,7 @@ print_override* print_override::get_attached_object(lua_State* state){
 unsigned long print_override::read_n(char* buffer, unsigned long buffer_size){
   unsigned long _result = 0;
 
-#if _WIN64
+#if (_WIN64) || (_WIN32)
   ReadFile(
     _pipe_read,
     buffer,
@@ -132,7 +132,7 @@ unsigned long print_override::read_all(I_string_store* store){
   unsigned long _data_len = available_bytes();
   char* _tmp_buf = (char*)malloc(_data_len);
 
-#if _WIN64
+#if (_WIN64) || (_WIN32)
   unsigned long _read_len;
   ReadFile(
     _pipe_read,
@@ -155,7 +155,7 @@ std::string print_override::read_all(){
 
   unsigned long _read_len;
   
-#if _WIN64
+#if (_WIN64) || (_WIN32)
   ReadFile(
     _pipe_read,
     _tmp_buf,
@@ -175,7 +175,7 @@ std::string print_override::read_all(){
 unsigned long print_override::peek_n(char* buffer, unsigned long buffer_size){
   unsigned long _result = 0;
 
-#if _WIN64
+#if (_WIN64) || (_WIN32)
   PeekNamedPipe(
     _pipe_read,
     buffer,
@@ -196,7 +196,7 @@ unsigned long print_override::peek_all(I_string_store* store){
 
   unsigned long _read_len;
 
-#if _WIN64
+#if (_WIN64) || (_WIN32)
   PeekNamedPipe(
     _pipe_read,
     _tmp_buf,
@@ -217,7 +217,7 @@ std::string print_override::peek_all(){
   unsigned long _data_len = available_bytes();
   char* _tmp_buf = (char*)malloc(_data_len);
 
-#if _WIN64
+#if (_WIN64) || (_WIN32)
   unsigned long _read_len;
   PeekNamedPipe(
     _pipe_read,
@@ -239,7 +239,7 @@ std::string print_override::peek_all(){
 unsigned long print_override::available_bytes(){
   unsigned long _result;
 
-#if _WIN64
+#if (_WIN64) || (_WIN32)
   PeekNamedPipe(
     _pipe_read,
     NULL,
@@ -254,7 +254,7 @@ unsigned long print_override::available_bytes(){
 }
 
 
-#if _WIN64
+#if (_WIN64) || (_WIN32)
 HANDLE print_override::get_event_handle(){
   return _event_handle;
 }

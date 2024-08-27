@@ -10,7 +10,7 @@
 #include "library_linking.h"
 #include "macro_helper.h"
 
-#if _WIN64
+#if (_WIN64) || (_WIN32)
 #include "Windows.h"
 #endif
 
@@ -52,7 +52,7 @@ namespace lua{
 
       bool _create_own_lua_state = false;
 
-#if _WIN64
+#if (_WIN64) || (_WIN32)
       HANDLE _thread_handle = NULL;
 
       struct _t_entry_point_data{
@@ -60,7 +60,7 @@ namespace lua{
         void* cbdata;
       };
 
-      static DWORD _thread_entry_point(LPVOID data);
+      static DWORD __stdcall _thread_entry_point(LPVOID data);
 #endif
 
       lua::debug::hook_handler* _hook_handler = NULL;

@@ -93,7 +93,7 @@ void hook_handler::_on_hook_event_static(lua_State* state, lua_Debug* dbg){
 }
 
 
-DLLEXPORT hook_handler* hook_handler::get_this_attached(lua_State* state){
+hook_handler* hook_handler::get_this_attached(lua_State* state){
   variant* _lud_var = to_variant_fglobal(state, LUD_HOOK_VAR_NAME);
   hook_handler* _result = 
     (hook_handler*)(_lud_var->get_type() == lightuser_var::get_static_lua_type()? ((lightuser_var*)_lud_var)->get_data(): NULL);

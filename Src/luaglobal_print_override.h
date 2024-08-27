@@ -7,7 +7,7 @@
 #include "lua_includes.h"
 #include "string_store.h"
 
-#if _WIN64
+#if (_WIN64) || (_WIN32)
 #include "Windows.h"
 #endif
 
@@ -25,14 +25,14 @@ namespace lua::global{
 
       virtual unsigned long available_bytes() = 0;
 
-#if _WIN64
+#if (_WIN64) || (_WIN32)
       virtual HANDLE get_event_handle() = 0;
 #endif
   };
 
   class print_override: public I_print_override{
     private:
-#if _WIN64
+#if (_WIN64) || (_WIN32)
       HANDLE _event_handle;
       HANDLE _pipe_write;
       HANDLE _pipe_read;
@@ -65,7 +65,7 @@ namespace lua::global{
 
       unsigned long available_bytes() override;
 
-#if _WIN64
+#if (_WIN64) || (_WIN32)
       HANDLE get_event_handle() override;
 #endif
 

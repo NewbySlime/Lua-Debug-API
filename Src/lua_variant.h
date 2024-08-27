@@ -83,25 +83,25 @@ namespace lua{
       constexpr static int get_static_lua_type(){return LUA_TSTRING;}
 
       virtual void append(const char* cstr) = 0;
-      virtual void append(const char* cstr, size_t len) = 0;
+      virtual void append(const char* cstr, std::size_t len) = 0;
 
       virtual const char* get_string() const = 0;
-      virtual size_t get_length() const = 0;
+      virtual std::size_t get_length() const = 0;
   };
 
   class string_var: public variant, public I_string_var{
     private:
       char* _str_mem = NULL;
-      size_t _mem_size = 0;
+      std::size_t _mem_size = 0;
 
       void _init_class();
 
       void _put_delimiter_at_end();
 
-      void _resize_mem(size_t newlen);
+      void _resize_mem(std::size_t newlen);
 
-      void _set_to_cstr(const char* cstr, size_t strlen);
-      void _append_cstr(const char* cstr, size_t strlen);
+      void _set_to_cstr(const char* cstr, std::size_t strlen);
+      void _append_cstr(const char* cstr, std::size_t strlen);
 
       static int _strcmp(const string_var& var1, const string_var& var2);
 
@@ -112,7 +112,7 @@ namespace lua{
       string_var();
       string_var(const string_var& var1);
       string_var(const char* cstr);
-      string_var(const char* cstr, size_t len);
+      string_var(const char* cstr, std::size_t len);
       string_var(const std::string& str);
       string_var(lua_State* state, int stack_idx);
       ~string_var();
@@ -136,7 +136,7 @@ namespace lua{
       string_var operator+(const std::string& var1) const;
       string_var operator+(const char* var1) const;
 
-      const char& operator[](size_t i) const;
+      const char& operator[](std::size_t i) const;
 
       bool operator<(const string_var& var1) const;
       bool operator>(const string_var& var1) const;
@@ -147,10 +147,10 @@ namespace lua{
       void append(const string_var& str);
       void append(const std::string& str);
       void append(const char* cstr) override;
-      void append(const char* cstr, size_t len) override;
+      void append(const char* cstr, std::size_t len) override;
 
       const char* get_string() const override;
-      size_t get_length() const override;
+      std::size_t get_length() const override;
   };
 
 

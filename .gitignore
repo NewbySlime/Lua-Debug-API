@@ -1,2 +1,7 @@
 *.o
 /log
+/.vscode
+/*.exp
+/*.ilk
+/*.lib
+/*.pdb

@@ -11,7 +11,7 @@
 class I_string_store{
   public:
     virtual void append(const char* data) = 0;
-    virtual void append(const char* data, size_t length) = 0;
+    virtual void append(const char* data, std::size_t length) = 0;
 };
 
 /// @brief Helper class for storing a std::string that is specific to current compilation, with functions redirected by interface functions.
@@ -20,7 +20,7 @@ class string_store: public I_string_store{
     std::string data;
 
     void append(const char* data) override;
-    void append(const char* data, size_t length) override;
+    void append(const char* data, std::size_t length) override;
 };
 
 #endif

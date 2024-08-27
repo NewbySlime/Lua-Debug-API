@@ -84,11 +84,11 @@ string_var::string_var(const string_var& var1){
 string_var::string_var(const char* cstr){
   _init_class();
 
-  size_t _str_len = std::strlen(cstr);
+  std::size_t _str_len = std::strlen(cstr);
   _set_to_cstr(cstr, _str_len);
 }
 
-string_var::string_var(const char* cstr, size_t len){
+string_var::string_var(const char* cstr, std::size_t len){
   _init_class();
   _set_to_cstr(cstr, len);
 }
@@ -121,21 +121,21 @@ void string_var::_put_delimiter_at_end(){
 }
 
 
-void string_var::_resize_mem(size_t newlen){
+void string_var::_resize_mem(std::size_t newlen){
   _str_mem = (char*)realloc(_str_mem, newlen+1);
   _mem_size = newlen;
 }
 
 
-void string_var::_set_to_cstr(const char* cstr, size_t strlen){
+void string_var::_set_to_cstr(const char* cstr, std::size_t strlen){
   _resize_mem(strlen);
 
   memcpy(_str_mem, cstr, strlen);
   _put_delimiter_at_end();
 }
 
-void string_var::_append_cstr(const char* cstr, size_t strlen){
-  size_t _original_len = _mem_size;
+void string_var::_append_cstr(const char* cstr, std::size_t strlen){
+  std::size_t _original_len = _mem_size;
   _resize_mem(_mem_size + strlen);
 
   char* _offset_str_mem = (char*)((long long)(_str_mem + _original_len));
@@ -145,7 +145,7 @@ void string_var::_append_cstr(const char* cstr, size_t strlen){
 
 
 int string_var::_strcmp(const string_var& var1, const string_var& var2){
-  size_t _check_len = std::min(var1._mem_size, var2._mem_size);
+  std::size_t _check_len = std::min(var1._mem_size, var2._mem_size);
   for(int i = 0; i < _check_len; i++){
     char _v1_ch = var1[i];
     char _v2_ch = var2[i];
@@ -198,7 +198,7 @@ bool string_var::from_state(lua_State* state, int stack_idx){
     }
   }
 
-  size_t _str_len;
+  std::size_t _str_len;
   const char* _cstr = lua_tolstring(state, stack_idx, &_str_len);
   _set_to_cstr(_cstr, _str_len);
 
@@ -261,7 +261,7 @@ string_var string_var::operator+(const char* var1) const{
 }
 
 
-const char& string_var::operator[](size_t i) const{
+const char& string_var::operator[](std::size_t i) const{
   return _str_mem[i];
 }
 
@@ -304,7 +304,7 @@ void string_var::append(const char* cstr){
   _append_cstr(cstr, std::strlen(cstr));
 }
 
-void string_var::append(const char* cstr, size_t len){
+void string_var::append(const char* cstr, std::size_t len){
   _append_cstr(cstr, len);
 }
 
@@ -313,7 +313,7 @@ const char* string_var::get_string() const{
   return _str_mem;
 }
 
-size_t string_var::get_length() const{
+std::size_t string_var::get_length() const{
   return _mem_size;
 }
 
@@ -764,7 +764,7 @@ I_variant* table_var::_get_value(const I_variant* key) const{
   variant* _key_data = cpplua_create_var_copy(key);
   comparison_variant _key_comp(_key_data); delete _key_data;
   
-  return _get_value(_key_data);
+  return _get_value(_key_comp);
 }
 
 

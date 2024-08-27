@@ -174,7 +174,7 @@ void execution_flow::_hookcb_static(lua_State* state, void* cb_data){
 }
 
 
-DLLEXPORT execution_flow* execution_flow::get_attached_obj(lua_State* state){
+execution_flow* execution_flow::get_attached_obj(lua_State* state){
   execution_flow* _result = NULL;
 
   lua_getglobal(state, LUD_EXECUTION_FLOW_VARNAME);
