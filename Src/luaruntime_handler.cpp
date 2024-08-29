@@ -95,9 +95,9 @@ DWORD __stdcall runtime_handler::_thread_entry_point(LPVOID data){
   execution_context _context = _ep_data->cb;
   void* _context_data = _ep_data->cbdata;
 
-  delete _ep_data;
-
   _context(_context_data);
+
+  delete _ep_data;
   return 0;
 }
 #endif
@@ -205,9 +205,23 @@ I_execution_flow* runtime_handler::get_execution_flow_interface(){
 }
 
 
+#if (_WIN64) || (_WIN32)
+// ret_val keep empty if returns void
+#define PROHIBIT_SAME_THREAD_EXECUTION_CHECK(ret_val) \
+  if(get_running_thread_id() == GetCurrentThreadId()){ \
+    if(_logger) \
+      _logger->print_error("[runtime_handler] Calling function " __FUNCTION__ " using same running thread is prohibited.\n"); \
+    return ret_val; \
+  }
+#endif
+
+#define VOID_RET 
+
 void runtime_handler::stop_execution(){
   if(!_thread_handle)
     return;
+
+  PROHIBIT_SAME_THREAD_EXECUTION_CHECK(VOID_RET)
 
 #if (_WIN64) || (_WIN32)
   if(is_currently_executing()){
@@ -224,19 +238,25 @@ bool runtime_handler::run_execution(execution_context cb, void* cbdata){
   if(is_currently_executing())
     return false;
 
-#if (_WIN64) || (_WIN32)
-    _t_entry_point_data* _ep_data = new _t_entry_point_data();
-    _ep_data->cb = cb;
-    _ep_data->cbdata = cbdata;
+  PROHIBIT_SAME_THREAD_EXECUTION_CHECK(false)
 
-    _thread_handle = CreateThread(
-      NULL,
-      0,
-      _thread_entry_point,
-      _ep_data,
-      0,
-      NULL
-    );
+  // deinit thread
+  stop_execution();
+
+#if (_WIN64) || (_WIN32)
+  _t_entry_point_data* _ep_data = new _t_entry_point_data();
+  _ep_data->cb = cb;
+  _ep_data->cbdata = cbdata;
+  _ep_data->_this = this;
+
+  _thread_handle = CreateThread(
+    NULL,
+    0,
+    _thread_entry_point,
+    _ep_data,
+    0,
+    NULL
+  );
 #endif
 
   return true;
@@ -289,6 +309,13 @@ void runtime_handler::load_std_libs(){
 
   luaL_openlibs(_state);
 }
+
+
+#if (_WIN64) || (_WIN32)
+DWORD runtime_handler::get_running_thread_id(){
+  return _thread_handle? GetThreadId(_thread_handle): 0;
+}
+#endif
 
 
 const lua::I_variant* runtime_handler::get_last_error_object(){

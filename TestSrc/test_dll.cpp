@@ -7,9 +7,15 @@ using namespace lua;
 using namespace lua::global;
 
 
+I_runtime_handler* _r_handler;
+
+
 void _do_add(const lua::I_vararr* args, lua::I_vararr* results){
   number_var* _v_n1 = (number_var*)cpplua_create_var_copy(args->get_var(0));
   number_var* _v_n2 = (number_var*)cpplua_create_var_copy(args->get_var(1));
+  
+  _r_handler->stop_execution();
+  _r_handler->get_execution_flow_interface()->block_execution();
 
   number_var _res1 = *_v_n1 + *_v_n2;
   results->append_var(&_res1);
@@ -106,7 +112,7 @@ int main(){
   {// MARK: Error load-time scenario
     printf("Testing error scenario\n");
     printf("Creating runtime_handler...\n");
-    I_runtime_handler* _r_handler = _rh_create_func(NULL, false, false);
+    _r_handler = _rh_create_func(NULL, false, false);
     I_print_override* _p_override = _gpo_create_func(_r_handler->get_lua_state_interface());
 
     _r_handler->run_execution([](void* cbdata){
@@ -139,7 +145,7 @@ int main(){
   {// MARK: Normal scenario
     printf("Testing normal scenario\n");
     printf("Creating runtime_handler...\n");
-    I_runtime_handler* _r_handler = _rh_create_func("./TestSrc/test_dll.lua", true, true);
+    _r_handler = _rh_create_func("./TestSrc/test_dll.lua", true, true);
     if(!_r_handler->get_lua_state_interface())
       exit(-1);
 

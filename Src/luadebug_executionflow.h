@@ -9,8 +9,13 @@
 
 #include "condition_variable"
 #include "mutex"
+#include "set"
 #include "thread"
 #include "vector"
+
+#if (_WIN64) || (_WIN32)
+#include "Windows.h"
+#endif
 
 
 // This code will be statically bind to the compilation file
@@ -36,6 +41,9 @@ namespace lua::debug{
       virtual unsigned int get_function_layer() const = 0;
       virtual const char* get_function_name() const = 0;
 
+      //virtual unsigned int get_current_line() const = 0;
+      //virtual const char* get_current_file_path() const = 0;
+
       virtual bool set_function_name(int layer_idx, const char* name) = 0;
       
       virtual void block_execution() = 0;
@@ -43,6 +51,14 @@ namespace lua::debug{
       virtual void step_execution(step_type st) = 0;
 
       virtual bool currently_pausing() = 0;
+
+#if (_WIN64) || (_WIN32)
+      virtual void register_event_resuming(HANDLE hevent) = 0;
+      virtual void remove_event_resuming(HANDLE hevent) = 0;
+
+      virtual void register_event_pausing(HANDLE hevent) = 0;
+      virtual void remove_event_pausing(HANDLE hevent) = 0;
+#endif 
 
       virtual const lua_Debug* get_debug_data() const = 0;
   };
@@ -75,6 +91,17 @@ namespace lua::debug{
       int _current_line;
       std::vector<_function_data*> _function_layer;
 
+#if (_WIN64) || (_WIN32)
+      // events
+      std::set<HANDLE> 
+        _event_resuming,
+        _event_pausing
+      ;
+#endif
+
+      // check if current thread is not the running thread
+      bool _check_running_thread();
+
       void _block_execution();
 
       void _hookcb();
@@ -105,6 +132,14 @@ namespace lua::debug{
       void step_execution(step_type st) override;
 
       bool currently_pausing() override;
+
+#if (_WIN64) || (_WIN32)
+      void register_event_resuming(HANDLE hevent) override;
+      void remove_event_resuming(HANDLE hevent) override;
+
+      void register_event_pausing(HANDLE hevent) override;
+      void remove_event_pausing(HANDLE hevent) override;
+#endif
 
       const lua_Debug* get_debug_data() const override;
 

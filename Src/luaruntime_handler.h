@@ -36,6 +36,10 @@ namespace lua{
       virtual int load_file(const char* lua_path) = 0;
       virtual void load_std_libs() = 0;
 
+#if (_WIN64) || (_WIN32)
+      virtual DWORD get_running_thread_id() = 0;
+#endif
+
       // can be NULL if no error from the start of the lua_State
       virtual const lua::I_variant* get_last_error_object() = 0;
   };
@@ -58,6 +62,8 @@ namespace lua{
       struct _t_entry_point_data{
         execution_context cb;
         void* cbdata;
+
+        runtime_handler* _this;
       };
 
       static DWORD __stdcall _thread_entry_point(LPVOID data);
@@ -111,6 +117,10 @@ namespace lua{
       int run_current_file() override;
       int load_file(const char* lua_path) override;
       void load_std_libs() override;
+
+#if (_WIN64) || (_WIN32)
+      DWORD get_running_thread_id() override;
+#endif
 
       const lua::I_variant* get_last_error_object() override;
 

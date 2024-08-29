@@ -1,6 +1,7 @@
 #include "luadebug_executionflow.h"
 #include "luastack_iter.h"
 #include "luatable_util.h"
+#include "luaruntime_handler.h"
 #include "stdlogger.h"
 
 
@@ -61,12 +62,34 @@ execution_flow::~execution_flow(){
 }
 
 
+bool execution_flow::_check_running_thread(){
+  runtime_handler* _handler = runtime_handler::get_attached_object(_this_state);
+
+#if (_WIN64) || (_WIN32)
+  if(_handler)
+    return _handler->get_running_thread_id() != GetCurrentThreadId();
+  
+  return true;
+#endif
+}
+
+
 void execution_flow::_block_execution(){
   std::unique_lock<std::mutex> _ulock(_execution_mutex);
 
   _currently_executing = false;
+#if (_WIN64) || (_WIN32)
+  for(HANDLE hevent: _event_pausing)
+    SetEvent(hevent);
+#endif
+
   _execution_block.wait(_ulock);
+
   _currently_executing = true;
+#if (_WIN64) || (_WIN32)
+  for(HANDLE hevent: _event_resuming)
+    SetEvent(hevent);
+#endif
 }
 
 
@@ -246,9 +269,21 @@ bool execution_flow::set_function_name(int layer_idx, const std::string& name){
 }
 
 
+// ret_val keep empty if returns void
+#define PROHIBIT_SAME_THREAD_EXECUTION_CHECK(ret_val) \
+  if(!_check_running_thread()){ \
+    if(_logger) \
+      _logger->print_error("[execution_flow] Calling function " __FUNCTION__ " using same running thread is prohibited.\n"); \
+    return ret_val; \
+  }
+
+#define VOID_RET 
+
 void execution_flow::block_execution(){
   if(!_this_state)
     return;
+  
+  PROHIBIT_SAME_THREAD_EXECUTION_CHECK(VOID_RET)
     
   _do_block = true;
   _stepping_type = st_none;
@@ -257,6 +292,8 @@ void execution_flow::block_execution(){
 void execution_flow::resume_execution(){
   if(!_this_state)
     return;
+
+  PROHIBIT_SAME_THREAD_EXECUTION_CHECK(VOID_RET)
     
   _do_block = false;
   _execution_block.notify_all();
@@ -265,7 +302,9 @@ void execution_flow::resume_execution(){
 void execution_flow::step_execution(step_type st){
   if(!_this_state)
     return;
-    
+
+  PROHIBIT_SAME_THREAD_EXECUTION_CHECK(VOID_RET)
+
   block_execution();
 
   _stepping_type = st;
@@ -290,6 +329,26 @@ void execution_flow::step_execution(step_type st){
 bool execution_flow::currently_pausing(){
   return !_currently_executing;
 }
+
+
+#if (_WIN64) || (_WIN32)
+void execution_flow::register_event_resuming(HANDLE hevent){
+  _event_resuming.insert(hevent);
+}
+
+void execution_flow::remove_event_resuming(HANDLE hevent){
+  _event_resuming.erase(hevent);
+}
+
+
+void execution_flow::register_event_pausing(HANDLE hevent){
+  _event_pausing.insert(hevent);
+}
+
+void execution_flow::remove_event_pausing(HANDLE hevent){
+  _event_pausing.erase(hevent);
+}
+#endif
 
 
 const lua_Debug* execution_flow::get_debug_data() const{
