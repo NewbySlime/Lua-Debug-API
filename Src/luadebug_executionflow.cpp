@@ -8,6 +8,7 @@
 using namespace lua;
 using namespace lua::debug;
 
+#define FILE_PATH_MAX_BUFFER_SIZE 1024
 
 #define LUD_EXECUTION_FLOW_VARNAME "__clua_execution_flow_data"
 
@@ -40,6 +41,8 @@ execution_flow::execution_flow(lua_State* state){
   _hook_handler->set_hook(LUA_MASKCALL | LUA_MASKRET | LUA_MASKLINE | LUA_MASKCOUNT, _hookcb_static, this);
 
   _set_bind_obj(this, state);
+  
+  _current_file_path.reserve(FILE_PATH_MAX_BUFFER_SIZE);
 }
 
 execution_flow::~execution_flow(){
@@ -74,6 +77,17 @@ bool execution_flow::_check_running_thread(){
 }
 
 
+void execution_flow::_update_tmp_current_fname(){
+  if(_function_layer.size() <= 0){
+    _tmp_current_fname = "";
+    return;
+  }
+
+  _function_data* _data = *(_function_layer.end()-1);
+  _tmp_current_fname = _data->name + (_data->is_tailcall? FNAME_TAILCALLED_FLAG: "");
+}
+
+
 void execution_flow::_block_execution(){
   std::unique_lock<std::mutex> _ulock(_execution_mutex);
 
@@ -96,6 +110,15 @@ void execution_flow::_block_execution(){
 void execution_flow::_hookcb(){
   _currently_executing = true;
   const lua_Debug* _debug_data = _hook_handler->get_current_debug_value();
+  _current_line = _debug_data->currentline;
+
+  if(strlen(_debug_data->source) > 0){
+    switch(_debug_data->source[0]){
+      break; case '@':{
+        _current_file_path.clear(); _current_file_path.append(&_debug_data->source[1]);
+      }
+    }
+  }
 
   switch(_debug_data->event){
     // Debug info does not track function name when it comes to tailcalling
@@ -105,15 +128,18 @@ void execution_flow::_hookcb(){
 
       _function_data* _data = *(_function_layer.end()-1);
       _data->is_tailcall = true;
-      _data->name += FNAME_TAILCALLED_FLAG;
+
+      _update_tmp_current_fname();
     }
 
     break; case LUA_HOOKCALL:{
       _function_data* _new_data = new _function_data();
-      _new_data->name = _debug_data->name? _debug_data->name: "";
+      _new_data->name = _debug_data->name? _debug_data->name: "???";
       _new_data->is_tailcall = false;
 
       _function_layer.insert(_function_layer.end(), _new_data);
+
+      _update_tmp_current_fname();
     }
 
     break; case LUA_HOOKRET:{
@@ -125,6 +151,8 @@ void execution_flow::_hookcb(){
 
       _function_layer.erase(_iter);
       delete _data;
+
+      _update_tmp_current_fname();
     }
   }
 
@@ -244,13 +272,16 @@ unsigned int execution_flow::get_function_layer() const{
 
 
 const char* execution_flow::get_function_name() const{
-  if(_function_layer.size() <= 0)
-    return "";
+  return _tmp_current_fname.c_str();
+}
 
-  _function_data* _data = (*(_function_layer.end()-1));
-  
-  // Debug info does not track function name when it comes to tailcalling
-  return _data->name.c_str();
+
+int execution_flow::get_current_line() const{
+  return _current_line;
+}
+
+const char* execution_flow::get_current_file_path() const{
+  return _current_file_path.c_str();
 }
 
 
@@ -264,7 +295,11 @@ bool execution_flow::set_function_name(int layer_idx, const std::string& name){
 
   _function_data* _data = _function_layer[layer_idx];
 
-  _data->name = name + (_data->is_tailcall? FNAME_TAILCALLED_FLAG: "");
+  _data->name = name;
+
+  if(layer_idx == (_function_layer.size()-1))
+    _update_tmp_current_fname();
+
   return true;
 }
 

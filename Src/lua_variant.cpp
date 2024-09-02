@@ -671,6 +671,7 @@ table_var::table_var(lua_State* state, int stack_idx){
 table_var::~table_var(){
   _clear_table_data();
 
+  _clear_keys_reg();
   free(_keys_buffer);
 }
 
@@ -679,7 +680,7 @@ void table_var::_init_class(){
   if(!_sr_data_map)
     _sr_data_map = new std::map<std::thread::id, _self_reference_data*>();
 
-  _keys_buffer = (const I_variant**)malloc(0);
+  _init_keys_reg();
 }
 
 
@@ -807,17 +808,32 @@ bool table_var::_remove_value(const I_variant* key){
 }
 
 
+void table_var::_init_keys_reg(){
+  _keys_buffer = (const I_variant**)malloc(sizeof(I_variant*));
+  _keys_buffer[0] = NULL;
+}
+
 void table_var::_update_keys_reg(){
+  _clear_keys_reg();
   _keys_buffer = (const I_variant**)realloc(_keys_buffer, (_table_data.size()+1) * sizeof(I_variant*));
 
   int _idx = 0;
   for(auto _pair: _table_data){
-    _keys_buffer[_idx] = _pair.first.get_comparison_data();
+    I_variant* _key_data = cpplua_create_var_copy(_pair.first.get_comparison_data());
+    _keys_buffer[_idx] = _key_data;
 
     _idx++;
   }
 
   _keys_buffer[_table_data.size()] = NULL;
+}
+
+void table_var::_clear_keys_reg(){
+  int _idx = 0;
+  while(_keys_buffer[_idx]){
+    delete _keys_buffer[_idx];
+    _idx++;
+  }
 }
 
 
@@ -1344,4 +1360,19 @@ DLLEXPORT void CPPLUA_VARIANT_SET_DEFAULT_LOGGER(I_logger* _logger){
 
 DLLEXPORT void CPPLUA_DELETE_VARIANT(const lua::I_variant* data){
   delete data;
+}
+
+DLLEXPORT const char* CPPLUA_GET_TYPE_NAME(int type_name){
+  switch(type_name){
+    break; case LUA_TNIL: return "NIL";
+    break; case LUA_TNUMBER: return "Number";
+    break; case LUA_TBOOLEAN: return "Bool";
+    break; case LUA_TSTRING: return "String";
+    break; case LUA_TTABLE: return "Table";
+    break; case LUA_TFUNCTION: return "Function";
+    break; case LUA_TUSERDATA: return "Lua-Userdata";
+    break; case LUA_TTHREAD: return "Lua-Thread";
+    break; case LUA_TLIGHTUSERDATA: return "Lua-Light-Userdata";
+    break; default: return "UNK";
+  }
 }

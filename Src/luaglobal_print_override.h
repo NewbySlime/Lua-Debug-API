@@ -7,6 +7,8 @@
 #include "lua_includes.h"
 #include "string_store.h"
 
+#include "set"
+
 #if (_WIN64) || (_WIN32)
 #include "Windows.h"
 #endif
@@ -26,26 +28,28 @@ namespace lua::global{
       virtual unsigned long available_bytes() = 0;
 
 #if (_WIN64) || (_WIN32)
-      virtual HANDLE get_event_handle() = 0;
+      virtual void register_event_read(HANDLE event) = 0;
+      virtual void remove_event_read(HANDLE event) = 0;
 #endif
   };
 
   class print_override: public I_print_override{
     private:
 #if (_WIN64) || (_WIN32)
-      HANDLE _event_handle;
+      std::set<HANDLE> _event_read;
+
       HANDLE _pipe_write;
       HANDLE _pipe_read;
 #endif
 
-    I_logger* _logger;
+      I_logger* _logger;
 
-    lua_State* _this_state;
+      lua_State* _this_state;
 
-    void _bind_global_function();
+      void _bind_global_function();
 
-    static void _set_bind_obj(print_override* obj, lua_State* state);
-    static int _on_print_static(lua_State* state);
+      static void _set_bind_obj(print_override* obj, lua_State* state);
+      static int _on_print_static(lua_State* state);
 
     public:
       print_override(lua_State* state);
@@ -66,7 +70,8 @@ namespace lua::global{
       unsigned long available_bytes() override;
 
 #if (_WIN64) || (_WIN32)
-      HANDLE get_event_handle() override;
+      void register_event_read(HANDLE event) override;
+      void remove_event_read(HANDLE event) override;
 #endif
 
       void set_logger(I_logger* logger) override;

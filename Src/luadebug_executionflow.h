@@ -10,6 +10,7 @@
 #include "condition_variable"
 #include "mutex"
 #include "set"
+#include "string"
 #include "thread"
 #include "vector"
 
@@ -41,8 +42,8 @@ namespace lua::debug{
       virtual unsigned int get_function_layer() const = 0;
       virtual const char* get_function_name() const = 0;
 
-      //virtual unsigned int get_current_line() const = 0;
-      //virtual const char* get_current_file_path() const = 0;
+      virtual int get_current_line() const = 0;
+      virtual const char* get_current_file_path() const = 0;
 
       virtual bool set_function_name(int layer_idx, const char* name) = 0;
       
@@ -81,6 +82,8 @@ namespace lua::debug{
 
       bool _do_block = false;
 
+      std::string _tmp_current_fname;
+
       std::mutex _execution_mutex;
       std::condition_variable _execution_block;
       bool _currently_executing = true;
@@ -89,6 +92,7 @@ namespace lua::debug{
       unsigned int _step_layer_check;
 
       int _current_line;
+      std::string _current_file_path;
       std::vector<_function_data*> _function_layer;
 
 #if (_WIN64) || (_WIN32)
@@ -101,6 +105,8 @@ namespace lua::debug{
 
       // check if current thread is not the running thread
       bool _check_running_thread();
+
+      void _update_tmp_current_fname();
 
       void _block_execution();
 
@@ -123,6 +129,9 @@ namespace lua::debug{
       
       // Returned value is short lived (as it is stored in std::string in a std::vector that will be manipulated when function is called or returned)
       const char* get_function_name() const override;
+
+      int get_current_line() const override;
+      const char* get_current_file_path() const override;
 
       bool set_function_name(int layer_idx, const char* name) override;
       bool set_function_name(int layer_idx, const std::string& name);

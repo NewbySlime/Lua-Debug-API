@@ -225,6 +225,8 @@ void runtime_handler::stop_execution(){
 
 #if (_WIN64) || (_WIN32)
   if(is_currently_executing()){
+    _execution_flow->resume_execution();
+
     _stop_thread = true;
     WaitForSingleObject(_thread_handle, INFINITE);
   }

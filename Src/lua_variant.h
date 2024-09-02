@@ -278,7 +278,9 @@ namespace lua{
       // returns NULL-terminated array
       virtual const I_variant** get_keys() const = 0;
 
+      // This will create a copy
       virtual I_variant* get_value(const I_variant* key) = 0;
+      // This will create a copy
       virtual const I_variant* get_value(const I_variant* key) const = 0;
 
       virtual void set_value(const I_variant* key, const I_variant* data) = 0;
@@ -310,7 +312,9 @@ namespace lua{
       bool _remove_value(const comparison_variant& comp_key);
       bool _remove_value(const I_variant* key);
 
+      void _init_keys_reg();
       void _update_keys_reg();
+      void _clear_keys_reg();
 
     public:
       table_var();
@@ -438,6 +442,8 @@ namespace lua{
 
 
 
+  // MARK: comparison_variant
+
   class comparison_variant{
     private:
       variant* _this_var;
@@ -493,12 +499,16 @@ lua::variant* cpplua_create_var_copy(const lua::I_variant* data);
 #define CPPLUA_DELETE_VARIANT cpplua_delete_variant
 #define CPPLUA_DELETE_VARIANT_STR MACRO_TO_STR_EXP(CPPLUA_DELETE_VARIANT)
 
+#define CPPLUA_GET_TYPE_NAME cpplua_get_type_name
+#define CPPLUA_GET_TYPE_NAME_STR MACRO_TO_STR_EXP(CPPLUA_GET_TYPE_NAME)
+
 typedef void (__stdcall *var_set_def_logger_func)(I_logger* logger);
 typedef void (__stdcall *del_var_func)(const lua::I_variant* data);
+typedef const char* (__stdcall *get_type_name_func)(int type_name);
 
 DLLEXPORT void CPPLUA_VARIANT_SET_DEFAULT_LOGGER(I_logger* logger);
 DLLEXPORT void CPPLUA_DELETE_VARIANT(const lua::I_variant* data);
 
-
+DLLEXPORT const char* CPPLUA_GET_TYPE_NAME(int type_name);
 
 #endif

@@ -18,7 +18,6 @@ print_override::print_override(lua_State* state){
   _logger = get_stdlogger();
 
 #if (_WIN64) || (_WIN32)
-  _event_handle = NULL;
   _pipe_read = NULL;
   _pipe_write = NULL;
 #endif
@@ -33,7 +32,6 @@ print_override::print_override(lua_State* state){
   _set_bind_obj(this, _this_state);
 
 #if (_WIN64) || (_WIN32)
-  _event_handle = CreateEvent(NULL, FALSE, FALSE, NULL);
   CreatePipe(&_pipe_read, &_pipe_write, NULL, 0);
 #endif
 
@@ -47,7 +45,6 @@ print_override::~print_override(){
   _set_bind_obj(NULL, _this_state);
   
 #if (_WIN64) || (_WIN32)
-  CloseHandle(_event_handle);
   CloseHandle(_pipe_write);
   CloseHandle(_pipe_read);
 #endif
@@ -94,7 +91,8 @@ int print_override::_on_print_static(lua_State* state){
     NULL
   );
 
-  SetEvent(_obj->_event_handle);
+  for(HANDLE _event_obj: _obj->_event_read)
+    SetEvent(_event_obj);
 #endif
 
   return 0;
@@ -255,8 +253,12 @@ unsigned long print_override::available_bytes(){
 
 
 #if (_WIN64) || (_WIN32)
-HANDLE print_override::get_event_handle(){
-  return _event_handle;
+void print_override::register_event_read(HANDLE event){
+  _event_read.insert(event);
+}
+
+void print_override::remove_event_read(HANDLE event){
+  _event_read.erase(event);
 }
 #endif
 
