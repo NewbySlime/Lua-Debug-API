@@ -40,6 +40,8 @@ namespace lua::global{
 
       HANDLE _pipe_write;
       HANDLE _pipe_read;
+
+      HANDLE _class_mutex;
 #endif
 
       I_logger* _logger;
