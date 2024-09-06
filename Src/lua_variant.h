@@ -12,6 +12,7 @@
 
 
 #define LUA_TERROR 0x101
+#define LUA_TCPPOBJECT 0x102
 
 
 // This code will be statically bind to the compilation file
@@ -21,6 +22,8 @@ namespace lua{
   void set_default_logger(I_logger* logger);
 
   class comparison_variant;
+  class I_vararr;
+  class vararr;
 
 
 
@@ -439,6 +442,77 @@ namespace lua{
 
       void set_error_code(int error_code);
   };
+
+
+
+
+  // MARK: object_var
+
+  class I_debuggable_object{
+    // later implementation
+  };
+
+  // Since this object will be collected by Lua as "garbage", it is a good practice to let it "leak" in C/C++ scope
+  // Also, do not create the object in stack memory as it will be put in Lua
+  class I_object{
+    public:
+      typedef void (*object_destructor_func)(I_object* object);
+      typedef void (*lua_function)(I_object* object, const I_vararr* parameters, I_vararr* results);
+
+      virtual ~I_object(){}
+
+      virtual object_destructor_func get_this_destructor() const = 0;
+
+      virtual int get_function_count() const = 0;
+      virtual const char* get_function_name(int idx) const = 0;
+      virtual lua_function get_function(int idx) const = 0;
+
+      virtual I_debuggable_object* as_debug_object() = 0;
+  };
+
+  // NOTE: Actual representation in Lua is a table with metamethods
+  class I_object_var: virtual public I_variant{
+    public:
+      constexpr static int get_static_lua_type(){return LUA_TCPPOBJECT;}
+
+      // Sets the new object reference
+      // Returns the previous object reference
+      // As long as it becomes a Lua object, it is okay to not free/delete the memory
+      virtual I_object* set_object_reference(I_object* object) = 0;
+      virtual I_object* get_object_reference() const = 0;
+
+  };
+
+  class object_var: public I_object_var, public variant{
+    private:
+      I_object* _obj = NULL;
+
+      static int _on_obj_called(lua_State* state);
+      static int _on_obj_removed(lua_State* state);
+
+      // index based from the bottom
+      static I_object* _get_obj_from_table(lua_State* state, int table_idx);
+
+    public:
+      object_var();
+      object_var(I_object* obj_ref);
+      
+      int get_type() const override;
+
+      static object_var* create_copy_static(const I_object_var* data);
+
+      bool from_state(lua_State* state, int stack_idx) override;
+      void push_to_stack(lua_State* state) const override;
+      variant* create_copy() const override;
+
+      void to_string(I_string_store* pstring) const override;
+      std::string to_string() const override;
+
+      I_object* set_object_reference(I_object* object) override;
+      I_object* get_object_reference() const override;
+      
+  };
+
 
 
 

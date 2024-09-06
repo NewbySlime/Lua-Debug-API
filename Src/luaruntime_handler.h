@@ -10,6 +10,9 @@
 #include "library_linking.h"
 #include "macro_helper.h"
 
+#include "map"
+#include "set"
+
 #if (_WIN64) || (_WIN32)
 #include "Windows.h"
 #endif
@@ -38,6 +41,9 @@ namespace lua{
 
 #if (_WIN64) || (_WIN32)
       virtual DWORD get_running_thread_id() = 0;
+
+      virtual void register_event_execution_finished(HANDLE event) = 0;
+      virtual void remove_event_execution_finished(HANDLE event) = 0;
 #endif
 
       // can be NULL if no error from the start of the lua_State
@@ -57,14 +63,20 @@ namespace lua{
       bool _create_own_lua_state = false;
 
 #if (_WIN64) || (_WIN32)
-      HANDLE _thread_handle = NULL;
-
       struct _t_entry_point_data{
         execution_context cb;
         void* cbdata;
 
         runtime_handler* _this;
       };
+
+      // the handle shouldn't be removed by itself (thread), it should be removed by another thread (maybe calling thread), see stop_execution
+      HANDLE _thread_handle = NULL;
+      _t_entry_point_data* _thread_data = NULL;
+
+      std::set<HANDLE> _event_finished;
+
+      void _deinit_thread();
 
       static DWORD __stdcall _thread_entry_point(LPVOID data);
 #endif
@@ -120,6 +132,9 @@ namespace lua{
 
 #if (_WIN64) || (_WIN32)
       DWORD get_running_thread_id() override;
+
+      void register_event_execution_finished(HANDLE event) override;
+      void remove_event_execution_finished(HANDLE event) override;
 #endif
 
       const lua::I_variant* get_last_error_object() override;

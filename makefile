@@ -1,6 +1,6 @@
 # USER DATA
 
-MAIN_PROGRAM_FILE= TestSrc/test_dll.cpp
+MAIN_PROGRAM_FILE= TestSrc/test_object.cpp
 OUTPUT_FILE= main.exe
 
 DLL_OUTPUT_FILE= CPPAPI.dll
@@ -8,7 +8,7 @@ STATIC_DLIB_OUTPUT_FILE = CPPAPI_static.lib
 
 CLUA_SOURCE_FOLDER= LuaSrc/*.c
 CPPLIB_SOURCE_FOLDER= Src/*.cpp
-CPPLIB_SOURCE_STATIC_DLIB_SCRIPTS= Src/lua_vararr.cpp Src/lua_variant.cpp Src/string_store.cpp Src/stdlogger.cpp Src/luatable_util.cpp
+CPPLIB_SOURCE_STATIC_DLIB_SCRIPTS= Src/luobject_helper.cpp Src/lua_vararr.cpp Src/lua_variant.cpp Src/string_store.cpp Src/stdlogger.cpp Src/luatable_util.cpp
 
 # END OF USER DATA
 

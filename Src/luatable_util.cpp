@@ -1,3 +1,4 @@
+#include "luastack_iter.h"
 #include "luatable_util.h"
 
 #include "stdexcept"
@@ -10,6 +11,9 @@ void lua::iterate_table(lua_State* state, int stack_idx, table_iter_callback cal
   if(!lua_checkstack(state, 3))
     throw new std::runtime_error("Lua Error: C Stack could not be resized.\n");
   
+  if(stack_idx > 0)
+    stack_idx = LUA_CONV_B2T(state, stack_idx);
+
   lua_pushnil(state);
 
   // NOTE: this won't work when the index is positive
@@ -17,7 +21,9 @@ void lua::iterate_table(lua_State* state, int stack_idx, table_iter_callback cal
 
   int idx = 0;
   while(lua_next(state, stack_idx)){
+    int _last_stack = lua_gettop(state);
     callback(state, -2, -1, idx, cb_data);
+    int _current_stack = lua_gettop(state);
     lua_pop(state, 1);
 
     idx++;

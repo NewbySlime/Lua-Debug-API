@@ -89,6 +89,14 @@ runtime_handler::~runtime_handler(){
 
 
 #if (_WIN64) || (_WIN32)
+void runtime_handler::_deinit_thread(){
+  for(auto _event: _event_finished)
+    SetEvent(_event);
+
+  delete _thread_data;
+  _thread_data = NULL;
+}
+
 DWORD __stdcall runtime_handler::_thread_entry_point(LPVOID data){
   _t_entry_point_data* _ep_data = (_t_entry_point_data*)data;
 
@@ -97,7 +105,7 @@ DWORD __stdcall runtime_handler::_thread_entry_point(LPVOID data){
 
   _context(_context_data);
 
-  delete _ep_data;
+  _ep_data->_this->_deinit_thread();
   return 0;
 }
 #endif
@@ -144,6 +152,7 @@ void runtime_handler::_hookcb(){
   if(!_stop_thread || GetThreadId(_thread_handle) != GetCurrentThreadId())
     return;
 
+  _deinit_thread();
   ExitThread(0);
 #endif
 }
@@ -251,6 +260,8 @@ bool runtime_handler::run_execution(execution_context cb, void* cbdata){
   _ep_data->cbdata = cbdata;
   _ep_data->_this = this;
 
+  _thread_data = _ep_data;
+
   _thread_handle = CreateThread(
     NULL,
     0,
@@ -316,6 +327,15 @@ void runtime_handler::load_std_libs(){
 #if (_WIN64) || (_WIN32)
 DWORD runtime_handler::get_running_thread_id(){
   return _thread_handle? GetThreadId(_thread_handle): 0;
+}
+
+
+void runtime_handler::register_event_execution_finished(HANDLE event){
+  _event_finished.insert(event);
+}
+
+void runtime_handler::remove_event_execution_finished(HANDLE event){
+  _event_finished.erase(event);
 }
 #endif
 

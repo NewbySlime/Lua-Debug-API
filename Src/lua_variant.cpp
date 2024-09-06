@@ -1,5 +1,7 @@
 #include "lua_str.h"
+#include "lua_vararr.h"
 #include "lua_variant.h"
+#include "luacpp_error_handling.h"
 #include "luastack_iter.h"
 #include "luatable_util.h"
 #include "stdlogger.h"
@@ -13,6 +15,8 @@
 #define BASE_VARIANT_TYPE_NAME "nil"
 
 #define NUM_VAR_EQUAL_ROUND_COMP 0.01
+
+#define OBJECT_VAR_REF_VALUE_NAME "_cpp_obj_ref"
 
 
 using namespace lua;
@@ -1184,6 +1188,208 @@ void error_var::set_error_code(int code){
 
 
 
+// MARK: lua::object_var
+object_var::object_var(){}
+
+object_var::object_var(I_object* obj_ref){
+  _obj = obj_ref;
+}
+
+
+int object_var::_on_obj_called(lua_State* state){
+  return protected_callcpp<int, 0>(state, [](lua_State* state){
+    I_object* _obj = _get_obj_from_table(state, 1);
+    if(!_obj){
+      string_var _err_msg = "[CPPLua] Cannot call function, object already deinstantiated.";
+      throw new error_var(&_err_msg, -1);
+    }
+
+    int _func_idx = lua_tointeger(state, lua_upvalueindex(1));
+    I_object::lua_function _lf = _obj->get_function(_func_idx);
+    if(!_lf){
+      string_var _err_msg = "[CPPLua] Cannot call function, object does not have the intended function.";
+      throw new error_var(&_err_msg, -1);
+    }
+
+    vararr _result_arr, _arg_arr;
+
+    // fetch argument values
+    int _arg_count = lua_gettop(state);
+    for(int i = 1; i < _arg_count; i++){
+      variant* _val = to_variant(state, i+1);
+      _arg_arr.append_var(_val);
+
+      cpplua_delete_variant(_val);
+    }
+    
+    _lf(_obj, &_arg_arr, &_result_arr);
+
+    // push results
+    for(int i = 0; i < _result_arr.get_var_count(); i++){
+      variant* _val = cpplua_create_var_copy(_result_arr.get_var(i));
+      if(_val->get_type() == error_var::get_static_lua_type())
+        throw (error_var*)_val;
+
+      _val->push_to_stack(state);
+      cpplua_delete_variant(_val);
+    }
+
+    return _result_arr.get_var_count();
+  });
+}
+
+int object_var::_on_obj_removed(lua_State* state){
+  return protected_callcpp<int, 0>(state, [](lua_State* state){
+    I_object* _obj = _get_obj_from_table(state, 1);
+    if(!_obj){
+      lua_getglobal(state, "print");
+      lua_pushstring(state, "[WARN][CPPLua] Object already deleted.");
+      lua_pcall(state, 1, 0, 0);
+
+      return 0;
+    }
+
+    lua_getmetatable(state, 1);
+    
+    lua_pushstring(state, OBJECT_VAR_REF_VALUE_NAME);
+    lua_pushlightuserdata(state, NULL);
+    lua_rawset(state, -3);
+
+    lua_pop(state, 1);
+
+    _obj->get_this_destructor()(_obj);
+
+    return 0;
+  });
+}
+
+
+I_object* object_var::_get_obj_from_table(lua_State* state, int table_idx){
+  if(table_idx < 0)
+    table_idx = LUA_CONV_T2B(state, table_idx);
+
+  int _prev_stack = lua_gettop(state);
+  int _check, _type;
+
+  I_object* _result = NULL;
+
+  lua_getmetatable(state, table_idx);
+
+  lua_pushstring(state, OBJECT_VAR_REF_VALUE_NAME);
+  _type = lua_rawget(state, -2);
+  if(_type != LUA_TLIGHTUSERDATA)
+    goto on_skip_label;
+
+  _result = (I_object*)lua_touserdata(state, -1);
+  lua_pop(state, 2);
+
+  on_skip_label:{}
+
+  int _stack_delta = lua_gettop(state) - _prev_stack;
+  if(_stack_delta > 0)
+    lua_pop(state, _stack_delta);
+
+  return _result;
+}
+
+
+int object_var::get_type() const{
+  return LUA_TCPPOBJECT;
+}
+
+
+object_var* object_var::create_copy_static(const I_object_var* data){
+  return new object_var(data->get_object_reference());
+}
+
+
+bool object_var::from_state(lua_State* state, int stack_idx){
+  if(lua_type(state, stack_idx) != LUA_TTABLE)
+    return false;
+
+  bool _retval = true;
+  int _type = lua_getfield(state, stack_idx, OBJECT_VAR_REF_VALUE_NAME);
+  if(_type != LUA_TLIGHTUSERDATA){
+    _retval = false;
+    goto on_skip_label;
+  }
+
+  _obj = (I_object*)lua_touserdata(state, -1);
+
+
+  on_skip_label:{
+    lua_pop(state, 1);
+  }
+
+  return _retval;
+}
+
+void object_var::push_to_stack(lua_State* state) const{
+  if(!_obj)
+    return;
+
+  // for the object
+  lua_newtable(state);
+
+  // object's metatable
+  lua_newtable(state);
+
+  // push garbage collector function
+  lua_pushstring(state, "__gc");
+  lua_pushcfunction(state, _on_obj_removed);
+  lua_rawset(state, -3);
+
+  // push obj
+  lua_pushstring(state, OBJECT_VAR_REF_VALUE_NAME);
+  lua_pushlightuserdata(state, _obj);
+  lua_rawset(state, -3);
+
+  // set object's metatable
+  lua_setmetatable(state, -2);
+
+  // push functions
+  for(int i = 0; i < _obj->get_function_count(); i++){
+    // fname
+    lua_pushstring(state, _obj->get_function_name(i));
+
+    // c closure
+    lua_pushinteger(state, i);
+    lua_pushcclosure(state, _on_obj_called, 1);
+    
+    lua_settable(state, -3);
+  }
+}
+
+variant* object_var::create_copy() const{
+  return new object_var(_obj);
+}
+
+
+#define OBJECT_VAR_STRING_VAL "Cpp-Object (Table)"
+
+void object_var::to_string(I_string_store* pstring) const{
+  pstring->append(OBJECT_VAR_STRING_VAL);
+}
+
+std::string object_var::to_string() const{
+  return OBJECT_VAR_STRING_VAL;
+}
+
+
+I_object* object_var::set_object_reference(I_object* object){
+  I_object* _prev_obj = _obj;
+  _obj = object;
+
+  return _prev_obj;
+}
+
+I_object* object_var::get_object_reference() const{
+  return _obj;
+}
+
+
+
+
 // MARK: lua::comparison_variant def
 comparison_variant::comparison_variant(const variant* from){
   _init_class(from);
@@ -1345,6 +1551,9 @@ lua::variant* cpplua_create_var_copy(const lua::I_variant* data){
 
     break; case error_var::get_static_lua_type():
       return error_var::create_copy_static(dynamic_cast<const I_error_var*>(data));
+
+    break; case object_var::get_static_lua_type():
+      return object_var::create_copy_static(dynamic_cast<const I_object_var*>(data));
 
     break; default:
       return new nil_var();
