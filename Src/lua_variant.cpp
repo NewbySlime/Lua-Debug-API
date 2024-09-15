@@ -2,6 +2,7 @@
 #include "lua_vararr.h"
 #include "lua_variant.h"
 #include "luacpp_error_handling.h"
+#include "luaobject_helper.h"
 #include "luastack_iter.h"
 #include "luatable_util.h"
 #include "stdlogger.h"
@@ -16,7 +17,9 @@
 
 #define NUM_VAR_EQUAL_ROUND_COMP 0.01
 
-#define OBJECT_VAR_REF_VALUE_NAME "_cpp_obj_ref"
+#define TABLE_REFERENCE_GLOBAL_DATA "__clua_table_ref_data"
+#define TABLE_METADATA_ACTUAL_VALUE "value"
+#define TABLE_METADATA_REFERENCE_COUNT "ref_count"
 
 
 using namespace lua;
@@ -28,6 +31,7 @@ const I_logger* _logger = &_default_logger;
 
 
 // MARK: lua::set_default_logger
+
 void lua::set_default_logger(I_logger* logger){
   _logger = logger;
 }
@@ -36,6 +40,7 @@ void lua::set_default_logger(I_logger* logger){
 
 
 // MARK: lua::variant def
+
 variant::variant(){}
 
 
@@ -76,6 +81,7 @@ void variant::setglobal(lua_State* state, const char* var_name){
 
 
 // MARK: lua::string_var def
+
 string_var::string_var(){
   _init_class();
 }
@@ -326,6 +332,7 @@ std::size_t string_var::get_length() const{
 
 
 // MARK: lua::number_var def
+
 number_var::number_var(){
   _this_data = 0;
 }
@@ -515,6 +522,7 @@ bool number_var::operator>=(const number_var& var1) const{
 
 
 // MARK: lua::bool_var def
+
 bool_var::bool_var(){
   _this_data = true;
 }
@@ -649,6 +657,8 @@ bool bool_var::operator!() const{
 
 
 
+// MARK: lua::table_var def
+// NOTE: API interfaces only used when it is using a reference.
 
 struct _self_reference_data{
   std::set<const void*> referenced_data;
@@ -656,16 +666,22 @@ struct _self_reference_data{
 
 std::map<std::thread::id, _self_reference_data*>* _sr_data_map = NULL;
 
-// MARK: lua::table_var
+
+// Create copy of a table
 table_var::table_var(){
   _init_class();
+
+  _table_data = new std::map<comparison_variant, variant*>();
+  _is_ref = false;
 }
 
+// Copy attributes from a table variant
 table_var::table_var(const table_var& var){
   _init_class();
   _copy_from_var(var);
 }
 
+// Create a reference
 table_var::table_var(lua_State* state, int stack_idx){
   _init_class();
   from_state(state, stack_idx);
@@ -689,17 +705,203 @@ void table_var::_init_class(){
 
 
 void table_var::_copy_from_var(const table_var& var){
-  _clear_table_data();
-  for(auto _iter: var._table_data)
-    set_value(_iter.first, _iter.second);
+  _is_ref = var._is_ref;
+  if(_is_ref){
+    if(!_table_pointer)
+      return;
+
+    // assume that there are already reference metadata, and we only need to increment the reference
+    _table_pointer = var._table_pointer;
+
+    _lua_state = var._lua_state;
+
+    _api_stack = var._api_stack;
+    _api_value = var._api_value;
+    
+    _api_var = var._api_var;
+    _api_table = var._api_table;
+
+    _increment_reference();
+  }
+  else{
+    _table_data = new std::map<comparison_variant, variant*>();
+
+    for(auto _iter: *var._table_data)
+      set_value(_iter.first, _iter.second);
+  }
+}
+
+void table_var::_clear_table_data(){
+  if(_table_pointer){
+    if(_get_reference_count() > 1)
+      _decrement_reference();
+    else
+      _delete_reference();
+
+    _table_pointer = NULL;
+  }
+
+  if(_table_data){
+    for(auto _iter: *_table_data)
+      delete _iter.second;
+
+    _table_data->clear();
+    delete _table_data;
+
+    _table_data = NULL;
+  }
 }
 
 
-void table_var::_clear_table_data(){
-  for(auto _iter: _table_data)
-    delete _iter.second;
+void table_var::_create_reference(){
+  if(!_table_pointer)
+    return;
 
-  _table_data.clear();
+  _require_global_table();
+
+  std::string _key_address = _get_reference_key(_table_pointer);
+  _api_value->pushstring(_lua_state, _key_address.c_str());
+  _api_value->newtable(_lua_state);
+  
+  // set reference count
+  _api_value->pushstring(_lua_state, TABLE_METADATA_REFERENCE_COUNT);
+  _api_value->pushinteger(_lua_state, 1);
+  _api_value->settable(_lua_state, -3);
+
+  // set table value
+  _api_value->pushstring(_lua_state, TABLE_METADATA_ACTUAL_VALUE);
+  _api_stack->pushvalue(_lua_state, -5); // copy table value
+  _api_value->settable(_lua_state, -3);
+
+  // set the metadata to the global list
+  _api_value->settable(_lua_state, -3);
+
+  _api_stack->pop(_lua_state, 1);
+}
+
+void table_var::_delete_reference(){
+  if(!_table_pointer)
+    return;
+
+  _require_global_table();
+
+  // remove reference by setting it to nil
+  std::string _key_address = _get_reference_key(_table_pointer);
+  _api_value->pushstring(_lua_state, _key_address.c_str());
+  _api_value->pushnil(_lua_state);
+  _api_value->settable(_lua_state, -3);
+
+  _api_stack->pop(_lua_state, 1);
+}
+
+void table_var::_require_global_table() const{
+  if(!_table_pointer)
+    return;
+
+  int _ret_type = _api_value->getglobal(_lua_state, TABLE_REFERENCE_GLOBAL_DATA);
+  if(_ret_type != LUA_TNIL)
+    return;
+  
+  _api_value->newtable(_lua_state);
+  
+  _api_stack->pushvalue(_lua_state, -1);
+  _api_value->setglobal(_lua_state, TABLE_METADATA_REFERENCE_COUNT);
+}
+
+
+void table_var::_push_metadata_table() const{
+  if(!_table_pointer)
+    return;
+
+  // get metadata list s+1
+  _require_global_table();
+
+  // get metadata s+1
+  std::string _key_address = _get_reference_key(_table_pointer);
+  _api_value->pushstring(_lua_state, _key_address.c_str());
+  _api_value->gettable(_lua_state, -2);
+
+  // set the top result as the result and trim the stack
+  _api_stack->insert(_lua_state, -2);
+  _api_stack->pop(_lua_state, 1);
+}
+
+void table_var::_push_actual_table() const{
+  if(!_table_pointer)
+    return;
+
+  // get metadata s+1
+  _push_metadata_table();
+
+  // get actual table s+1
+  _api_value->pushstring(_lua_state, TABLE_METADATA_ACTUAL_VALUE);
+  _api_value->gettable(_lua_state, -2);
+
+  // set the top result as the result and trim the stack
+  _api_stack->insert(_lua_state, -2);
+  _api_stack->pop(_lua_state, 1);
+}
+
+
+void table_var::_increment_reference(){
+  if(!_table_pointer)
+    return;
+
+  // get metadata s+1
+  _push_metadata_table();
+
+  _api_value->pushstring(_lua_state, TABLE_METADATA_REFERENCE_COUNT);
+  _api_stack->pushvalue(_lua_state, -1); // copy for later use
+  _api_value->gettable(_lua_state, -3);
+
+  // increment reference
+  _api_value->pushinteger(_lua_state, 1);
+  _api_value->arith(_lua_state, LUA_OPADD);
+
+  _api_value->settable(_lua_state, -3);
+
+  _api_stack->pop(_lua_state, 1);
+}
+
+void table_var::_decrement_reference(){
+  if(!_table_pointer)
+    return;
+
+  // get metadata s+1
+  _push_metadata_table();
+
+  _api_value->pushstring(_lua_state, TABLE_METADATA_REFERENCE_COUNT);
+  _api_stack->pushvalue(_lua_state, -1); // copy for later use
+  _api_value->gettable(_lua_state, -3);
+
+  // decrement reference
+  _api_value->pushinteger(_lua_state, 1);
+  _api_value->arith(_lua_state, LUA_OPSUB);
+
+  _api_value->settable(_lua_state, -3);
+
+  _api_stack->pop(_lua_state, 1);
+}
+
+int table_var::_get_reference_count(){
+  if(!_table_pointer)
+    return 0;
+
+  // get metadata s+1
+  _push_metadata_table();
+
+  _api_value->pushstring(_lua_state, TABLE_METADATA_REFERENCE_COUNT);
+  _api_value->gettable(_lua_state, -2);
+
+  int _res = _api_value->tointeger(_lua_state, -1);
+  _api_stack->pop(_lua_state, 2);
+
+  return _res;
+}
+
+
+std::string table_var::_get_reference_key(const void* pointer){
+  return format_str("0x%X", (unsigned long long)pointer);
 }
 
 
@@ -708,8 +910,8 @@ void table_var::_fs_iter_cb(lua_State* state, int key_stack, int val_stack, int 
 
   table_var* _this = (table_var*)cb_data;
 
-  int _type = lua_type(state, key_stack);
-  variant* _key_value;
+  int _type = _this->_api_value->type(state, key_stack);
+  I_variant* _key_value;
   switch(_type){
     break;
       case LUA_TSTRING:
@@ -718,18 +920,19 @@ void table_var::_fs_iter_cb(lua_State* state, int key_stack, int val_stack, int 
       case LUA_TLIGHTUSERDATA:
       case LUA_TUSERDATA:
       case LUA_TBOOLEAN:{
-        _key_value = to_variant(state, key_stack);
+        _key_value = _this->_api_var->to_variant(state, key_stack);
       }
 
     break; default:{
-      _key_value = to_variant_ref(state, key_stack);
+      _key_value = _this->_api_var->to_variant_ref(state, key_stack);
     }
   }
 
-  variant* _value = to_variant(state, val_stack);
+  I_variant* _value = _this->_api_var->to_variant(state, val_stack);
   if(_value->get_type() == LUA_TNIL){
-    std::string _key_str = _key_value->to_string();
-    _logger->print_warning(format_str("Value of (type %d %s) is Nil. Is this intended?\n", _key_value->get_type(), _key_str.c_str()));
+    string_store _str;
+    _key_value->to_string(&_str);
+    _logger->print_warning(format_str("Value of (type %d %s) is Nil. Is this intended?\n", _key_value->get_type(), _str.data.c_str()));
   }
 
   switch(_key_value->get_type()){
@@ -739,33 +942,132 @@ void table_var::_fs_iter_cb(lua_State* state, int key_stack, int val_stack, int 
       case lua::bool_var::get_static_lua_type():
       case lua::lightuser_var::get_static_lua_type():
       case lua::number_var::get_static_lua_type():{
-        comparison_variant _cmp_var = _key_value;
-        _this->set_value(_cmp_var, _value);
+        _this->set_value(_key_value, _value);
       }
 
     break; default:{
       _logger->print_error(format_str("Using type (%s) as key is not supported.\n",
-        lua_typename(state, _key_value->get_type())
+        _this->_api_value->ttypename(state, _key_value->get_type())
       ));
     }
   }
 
-  delete _key_value;
-  delete _value;
+  _this->_api_var->delete_variant(_key_value);
+  _this->_api_var->delete_variant(_value);
 
   return;
 }
 
+bool table_var::_from_state_copy_by_interface(void* istate, int stack_idx){
+  _clear_table_data();
+  _table_data = new std::map<comparison_variant, variant*>();
 
-variant* table_var::_get_value(const comparison_variant& comp_var) const{
-  auto _iter = _table_data.find(comp_var);
-  if(_iter == _table_data.end())
-    return NULL;
+  int _type = _api_value->type(istate, stack_idx);
+  if(_type != get_type()){
+    _logger->print_error(format_str("Mismatched type when converting at stack (%d). (%s-%s)\n",
+      stack_idx,
+      _api_value->ttypename(istate, _type),
+      _api_value->ttypename(istate, get_type())
+    ));
 
-  return _iter->second;
+    return false;
+  }
+
+  bool _has_sr_ownership = false;
+  _self_reference_data* _sr_data;
+  auto _iter = _sr_data_map->find(std::this_thread::get_id());
+  if(_iter == _sr_data_map->end()){
+    _has_sr_ownership = true;
+
+    _sr_data = new _self_reference_data();
+    _sr_data_map->operator[](std::this_thread::get_id()) = _sr_data;
+  }
+  else
+    _sr_data = _iter->second;
+
+  const void *_this_luapointer = _api_value->topointer(istate, stack_idx);
+  if(_sr_data->referenced_data.find(_this_luapointer) != _sr_data->referenced_data.end())
+    goto skip_parsing_label;
+
+  _sr_data->referenced_data.insert(_this_luapointer);
+  _api_table->iterate_table(istate, stack_idx, _fs_iter_cb, this);
+  
+  skip_parsing_label:{
+    if(_has_sr_ownership){
+      _sr_data_map->erase(std::this_thread::get_id());
+      delete _sr_data;
+    }
+  }
+
+  return true;
 }
 
-I_variant* table_var::_get_value(const I_variant* key) const{
+
+variant* table_var::_get_value_by_interface(const I_variant* key) const{
+  if(!_table_pointer)
+    return NULL;
+
+  // get actual table s+1
+  _push_actual_table();
+
+  // get value s+1
+  _api_var->push_variant(_lua_state, key);
+  _api_value->gettable(_lua_state, -2);
+
+  // create compilation specific copy
+  // TODO need optimization
+  I_variant* _res_tmp = _api_var->to_variant(_lua_state, -1);
+  variant* _res = cpplua_create_var_copy(_res_tmp);
+  _api_var->delete_variant(_res_tmp);
+
+  _api_stack->pop(_lua_state, 2);
+  return _res;
+}
+
+void table_var::_set_value_by_interface(const I_variant* key, const I_variant* value){
+  if(!_table_pointer)
+    return;
+
+  // get actual table s+1
+  _push_actual_table();
+
+  // set value
+  _api_var->push_variant(_lua_state, key);
+  _api_var->push_variant(_lua_state, value);
+  _api_value->settable(_lua_state, -3);
+
+  _api_stack->pop(_lua_state, 1);
+
+  _update_keys_reg();
+}
+
+bool table_var::_remove_value_by_interface(const I_variant* key){
+  if(!_table_pointer)
+    return false;
+
+  // get actual table s+1
+  _push_actual_table();
+
+  // set value to nil
+  _api_var->push_variant(_lua_state, key);
+  _api_value->pushnil(_lua_state);
+  _api_value->settable(_lua_state, -3);
+
+  _api_stack->pop(_lua_state, 1);
+
+  _update_keys_reg();
+}
+
+
+variant* table_var::_get_value(const comparison_variant& comp_var) const{
+  auto _iter = _table_data->find(comp_var);
+  if(_iter == _table_data->end())
+    return NULL;
+
+  return cpplua_create_var_copy(_iter->second);
+}
+
+variant* table_var::_get_value(const I_variant* key) const{
   variant* _key_data = cpplua_create_var_copy(key);
   comparison_variant _key_comp(_key_data); delete _key_data;
   
@@ -775,7 +1077,7 @@ I_variant* table_var::_get_value(const I_variant* key) const{
 
 void table_var::_set_value(const comparison_variant& comp_key, const variant* value){
   _remove_value(comp_key);
-  _table_data[comp_key] = value->create_copy();
+  _table_data->operator[](comp_key) = value->create_copy();
 
   _update_keys_reg();
 }
@@ -793,12 +1095,12 @@ void table_var::_set_value(const I_variant* key, const I_variant* value){
 
 
 bool table_var::_remove_value(const comparison_variant& comp_key){
-  auto _check_iter = _table_data.find(comp_key);
-  if(_check_iter == _table_data.end())
+  auto _check_iter = _table_data->find(comp_key);
+  if(_check_iter == _table_data->end())
     return false;
 
   delete _check_iter->second;
-  _table_data.erase(comp_key);
+  _table_data->erase(comp_key);
 
   _update_keys_reg();
   return true;
@@ -819,17 +1121,53 @@ void table_var::_init_keys_reg(){
 
 void table_var::_update_keys_reg(){
   _clear_keys_reg();
-  _keys_buffer = (const I_variant**)realloc(_keys_buffer, (_table_data.size()+1) * sizeof(I_variant*));
 
-  int _idx = 0;
-  for(auto _pair: _table_data){
-    I_variant* _key_data = cpplua_create_var_copy(_pair.first.get_comparison_data());
-    _keys_buffer[_idx] = _key_data;
+  if(_is_ref){
+    if(!_table_pointer)
+      return;
 
-    _idx++;
+    // get actual table s+1
+    _push_actual_table();
+
+    _api_value->len(_lua_state, -1);
+    int _key_len = _api_value->tointeger(_lua_state, -1);
+    _api_stack->pop(_lua_state, 1);
+
+    _keys_buffer = (const I_variant**)realloc(_keys_buffer, (_key_len+1) * sizeof(I_variant*));
+
+    struct iter_data{
+      table_var* _this;
+      int current_idx;
+    }; iter_data _iterd;
+
+    _iterd._this = this;
+    _iterd.current_idx = 0;
+
+    _api_table->iterate_table(_lua_state, -1, [](lua_State* state, int key_stack, int val_stack, int iter_idx, void* cb_data){
+      iter_data* _iterd = (iter_data*)cb_data;
+      
+      I_variant* _ivar = _iterd->_this->_api_var->to_variant(state, key_stack);
+      _iterd->_this->_keys_buffer[_iterd->current_idx] = cpplua_create_var_copy(_ivar);
+      _iterd->_this->_api_var->delete_variant(_ivar);
+
+      _iterd->current_idx++;
+    }, &_iterd);
+    
+    _api_stack->pop(_lua_state, 1);
   }
+  else{
+    _keys_buffer = (const I_variant**)realloc(_keys_buffer, (_table_data->size()+1) * sizeof(I_variant*));
 
-  _keys_buffer[_table_data.size()] = NULL;
+    int _idx = 0;
+    for(auto _pair: *_table_data){
+      I_variant* _key_data = cpplua_create_var_copy(_pair.first.get_comparison_data());
+      _keys_buffer[_idx] = _key_data;
+
+      _idx++;
+    }
+
+    _keys_buffer[_table_data->size()] = NULL;
+  }
 }
 
 void table_var::_clear_keys_reg(){
@@ -838,6 +1176,8 @@ void table_var::_clear_keys_reg(){
     delete _keys_buffer[_idx];
     _idx++;
   }
+
+  _keys_buffer = (const I_variant**)realloc(_keys_buffer, 0);
 }
 
 
@@ -848,15 +1188,32 @@ int table_var::get_type() const{
 
 table_var* table_var::create_copy_static(const I_table_var* data){
   table_var* _result = new table_var();
-  const I_variant** _key_arr = data->get_keys();
+  _result->_clear_table_data();
 
-  int _idx = 0;
-  while(_key_arr[_idx]){
-    const I_variant* _key_data = _key_arr[_idx];
-    const I_variant* _value_data = data->get_value(_key_data);
-    _result->set_value(_key_data, _value_data);
+  _result->_is_ref = data->is_reference();
+  if(_result->_is_ref){
+    // assume that there are already reference metadata, and we only need to increment the reference
+    _result->_lua_state = data->get_lua_interface();
+    _result->_table_pointer = data->get_table_pointer();
+    _result->_api_stack = data->get_lua_stack_api_interface();
+    _result->_api_value = data->get_lua_value_api_interface();
+    _result->_api_var = data->get_lua_variant_api_interface();
+    _result->_api_table = data->get_lua_table_api_interface();
 
-    _idx++;
+    _result->_increment_reference();
+    _result->_update_keys_reg();
+  }
+  else{
+    const I_variant** _key_arr = data->get_keys();
+
+    int _idx = 0;
+    while(_key_arr[_idx]){
+      const I_variant* _key_data = _key_arr[_idx];
+      const I_variant* _value_data = data->get_value(_key_data);
+      _result->set_value(_key_data, _value_data);
+
+      _idx++;
+    }
   }
 
   return _result;
@@ -865,6 +1222,12 @@ table_var* table_var::create_copy_static(const I_table_var* data){
 
 bool table_var::from_state(lua_State* state, int stack_idx){
   _clear_table_data();
+
+  _api_stack = cpplua_get_api_stack_definition();
+  _api_value = cpplua_get_api_value_definition();
+
+  _api_var = cpplua_get_api_variant_util_definition();
+  _api_table = cpplua_get_api_table_util_definition();
 
   int _type = lua_type(state, stack_idx);
   if(_type != get_type()){
@@ -877,40 +1240,48 @@ bool table_var::from_state(lua_State* state, int stack_idx){
     return false;
   }
 
-  bool _has_sr_ownership = false;
-  _self_reference_data* _sr_data;
-  auto _iter = _sr_data_map->find(std::this_thread::get_id());
-  if(_iter == _sr_data_map->end()){
-    _has_sr_ownership = true;
 
-    _sr_data = new _self_reference_data();
-    _sr_data_map->operator[](std::this_thread::get_id()) = _sr_data;
-  }
+  _lua_state = state;
+  _table_pointer = lua_topointer(state, stack_idx);
+
+  if(_has_reference_metadata())
+    _increment_reference();
   else
-    _sr_data = _iter->second;
-
-  const void *_this_luapointer = lua_topointer(state, stack_idx);
-  if(_sr_data->referenced_data.find(_this_luapointer) != _sr_data->referenced_data.end())
-    goto skip_parsing_label;
-
-  _sr_data->referenced_data.insert(_this_luapointer);
-  iterate_table(state, stack_idx, _fs_iter_cb, this);
-  
-  skip_parsing_label:{
-    if(_has_sr_ownership){
-      _sr_data_map->erase(std::this_thread::get_id());
-      delete _sr_data;
-    }
-  }
+    _create_reference();
 
   return true;
 }
 
-void table_var::push_to_stack(lua_State* state) const{
-  lua_newtable(state);
+bool table_var::from_state_copy(lua_State* state, int stack_idx){
+  _api_value = cpplua_get_api_value_definition();
+  _api_table = cpplua_get_api_table_util_definition();
+  _api_var = cpplua_get_api_variant_util_definition();
 
-  for(auto _iter: _table_data)
-    set_table_value(state, LUA_CONV_T2B(state, -1), _iter.first.get_comparison_data(), _iter.second);
+  return _from_state_copy_by_interface(state, stack_idx);
+}
+
+
+void table_var::push_to_stack(lua_State* state) const{
+  if(_is_ref){
+    if(!_table_pointer){
+      _api_value->pushnil(state);
+      return;
+    }
+
+    if(state == _lua_state)
+      _push_actual_table();
+    else{ // prohibit if the state address (in memory) is not the same
+      table_var* _tmp_var = dynamic_cast<table_var*>(create_table_copy());
+      _tmp_var->push_to_stack(state);
+      cpplua_delete_variant(_tmp_var);
+    }
+  }
+  else{
+    lua_newtable(state);
+
+    for(auto _iter: *_table_data)
+      set_table_value(state, LUA_CONV_T2B(state, -1), _iter.first.get_comparison_data(), _iter.second);
+  }
 }
 
 variant* table_var::create_copy() const{
@@ -929,51 +1300,115 @@ std::string table_var::to_string() const{
 }
 
 
+I_table_var* table_var::create_table_copy() const{
+  table_var* _res = new table_var();
+
+  if(_is_ref){ // create copy from reference
+    if(!_table_pointer)
+      goto skip_label;
+  
+    // push the table to stack
+    _push_actual_table();
+
+    _res->_api_table = _api_table;
+    _res->_api_value = _api_value;
+    _res->_api_var = _api_var;
+
+    _res->_from_state_copy_by_interface(_lua_state, -1);
+  }
+  else // just copy the table_var object
+    _res->_copy_from_var(*this);
+
+  skip_label:{}
+  return _res;
+}
+
+
 const I_variant** table_var::get_keys() const{
   return _keys_buffer;
 }
 
+void table_var::update_keys(){
+  _update_keys_reg();
+}
+
 
 variant* table_var::get_value(const comparison_variant& comp_var){
-  return _get_value(comp_var);
+  return _is_ref? _get_value_by_interface(comp_var.get_comparison_data()): _get_value(comp_var);
 }
 
 I_variant* table_var::get_value(const I_variant* key){
-  return _get_value(key);
+  return _is_ref? _get_value_by_interface(key): _get_value(key);
 }
 
 
 const variant* table_var::get_value(const comparison_variant& comp_var) const{
-  return _get_value(comp_var);
+  return _is_ref? _get_value_by_interface(comp_var.get_comparison_data()): _get_value(comp_var);
 }
 
 const I_variant* table_var::get_value(const I_variant* key) const{
-  return _get_value(key);
+  return _is_ref? _get_value_by_interface(key): _get_value(key);
 }
 
 
 void table_var::set_value(const comparison_variant& comp_var, variant* value){
-  _set_value(comp_var, value);
+  if(_is_ref)
+    _set_value_by_interface(comp_var.get_comparison_data(), value);
+  else
+    _set_value(comp_var, value);
 }
 
 void table_var::set_value(const I_variant* key, const I_variant* data){
-  _set_value(key, data);
+  if(_is_ref)
+    _set_value_by_interface(key, data);
+  else
+    _set_value(key, data);
 }
 
 
 bool table_var::remove_value(const comparison_variant& comp_var){
-  return _remove_value(comp_var);
+  return _is_ref? _remove_value_by_interface(comp_var.get_comparison_data()): _remove_value(comp_var);
 }
 
 bool table_var::remove_value(const I_variant* key){
-  return _remove_value(key);
+  return _is_ref? _remove_value_by_interface(key): _remove_value(key);
+}
+
+
+bool table_var::is_reference() const{
+  return _is_ref;
+}
+
+const void* table_var::get_table_pointer() const{
+  return _table_pointer;
+}
+
+void* table_var::get_lua_interface() const{
+  return _lua_state;
+}
+
+lua::api::I_value* table_var::get_lua_value_api_interface() const{
+  return _api_value;
+}
+
+lua::api::I_stack* table_var::get_lua_stack_api_interface() const{
+  return _api_stack;
+}
+
+lua::api::I_table_util* table_var::get_lua_table_api_interface() const{
+  return _api_table;
+}
+
+lua::api::I_variant_util* table_var::get_lua_variant_api_interface() const{
+  return _api_var;
 }
 
 
 
 
 
-// MARK: lua::lightuser_var
+// MARK: lua::lightuser_var def
+
 lightuser_var::lightuser_var(){
   _pointer_data = NULL;
 }
@@ -1092,8 +1527,137 @@ bool lightuser_var::operator>=(const lightuser_var& var1) const{
 
 
 
+// MARK: lua::function_var def
 
-// MARK: lua::error_var
+function_var::function_var(lua_CFunction fn, const I_vararr* args){
+  _init_class();
+
+  _this_fn = fn;
+
+  if(args){
+    for(int i = 0; i < args->get_var_count(); i++)
+      _fn_args->append_var(args->get_var(i));
+  }
+}
+
+function_var::function_var(lua_State* state, int stack_idx){
+  _init_class();
+  from_state(state, stack_idx);
+}
+
+function_var::~function_var(){
+  delete _fn_args;
+}
+
+
+void function_var::_init_class(){
+  _fn_args = new vararr();
+}
+
+
+int function_var::_compare_with(const variant* rhs) const{
+  function_var* _rhs = (function_var*)rhs;
+  if(_this_fn == _rhs->_this_fn)
+    return 0;
+
+  return _this_fn < _rhs->_this_fn? -1: 1;
+}
+
+
+int function_var::get_type() const{
+  return LUA_TFUNCTION;
+}
+
+
+function_var* function_var::create_copy_static(const I_function_var* data){
+  return new function_var(data->get_function(), data->get_arg_closure());
+}
+
+
+bool function_var::from_state(lua_State* state, int stack_idx){
+  int _type = lua_type(state, stack_idx);
+  if(_type != get_type()){
+    _logger->print_error(format_str("Mismatched type when converting at stack (%d). (%s-%s)\n",
+      stack_idx,
+      lua_typename(state, _type),
+      lua_typename(state, get_type())
+    ));
+
+    return false;
+  }
+
+  if(!lua_iscfunction(state, stack_idx)){
+    _logger->print_error(format_str("Stack Idx (%d) is not a CFunction.\n", stack_idx));
+    
+    return false;
+  }
+
+  _this_fn = lua_tocfunction(state, stack_idx);
+  int _func_idx = stack_idx < 0? LUA_CONV_T2B(state, stack_idx): stack_idx; 
+
+  _fn_args->clear();
+  int _idx = 1;
+  while(_idx <= LUAI_MAXSTACK){
+    if(!lua_getupvalue(state, _func_idx, _idx))
+      break;
+
+    variant* _var = to_variant(state, -1);
+    _fn_args->append_var(_var);
+    cpplua_delete_variant(_var);
+
+    lua_pop(state, 1);
+  }
+}
+
+void function_var::push_to_stack(lua_State* state) const{
+  if(!_this_fn){
+    lua_pushnil(state);
+    return;
+  }
+
+  // push the upvalues first
+  for(int i = 0; i < _fn_args->get_var_count(); i++)
+    _fn_args->get_self_var(i)->push_to_stack(state);
+
+  lua_pushcclosure(state, _this_fn, _fn_args->get_var_count());
+}
+
+variant* function_var::create_copy() const{
+  return new function_var(_this_fn, _fn_args);
+}
+
+
+std::string function_var::to_string() const{
+  return format_str("CFunction 0x%X", (unsigned long long)_this_fn);
+}
+
+void function_var::to_string(I_string_store* pstring) const{
+  pstring->append(to_string().c_str());
+}
+
+
+I_vararr* function_var::get_arg_closure(){
+  return _fn_args;
+}
+
+const I_vararr* function_var::get_arg_closure() const{
+  return _fn_args;
+}
+
+
+lua_CFunction function_var::get_function() const{
+  return _this_fn;
+}
+
+void function_var::set_function(lua_CFunction fn){
+  _this_fn = fn;
+}
+
+
+
+
+// MARK: lua::error_var def
+
 error_var::error_var(){
   _err_data = new variant();
 }
@@ -1103,7 +1667,7 @@ error_var::error_var(const error_var& var){
   _error_code = var._error_code;
 }
 
-error_var::error_var(const variant* data, int code){
+error_var::error_var(const variant* data, long long code){
   _err_data = data->create_copy();
   _error_code = code;
 }
@@ -1177,7 +1741,7 @@ const I_variant* error_var::get_error_data_interface() const{
 }
 
 
-int error_var::get_error_code() const{
+long long error_var::get_error_code() const{
   return _error_code;
 }
 
@@ -1188,108 +1752,12 @@ void error_var::set_error_code(int code){
 
 
 
-// MARK: lua::object_var
+// MARK: lua::object_var def
+
 object_var::object_var(){}
 
 object_var::object_var(I_object* obj_ref){
   _obj = obj_ref;
-}
-
-
-int object_var::_on_obj_called(lua_State* state){
-  return protected_callcpp<int, 0>(state, [](lua_State* state){
-    I_object* _obj = _get_obj_from_table(state, 1);
-    if(!_obj){
-      string_var _err_msg = "[CPPLua] Cannot call function, object already deinstantiated.";
-      throw new error_var(&_err_msg, -1);
-    }
-
-    int _func_idx = lua_tointeger(state, lua_upvalueindex(1));
-    I_object::lua_function _lf = _obj->get_function(_func_idx);
-    if(!_lf){
-      string_var _err_msg = "[CPPLua] Cannot call function, object does not have the intended function.";
-      throw new error_var(&_err_msg, -1);
-    }
-
-    vararr _result_arr, _arg_arr;
-
-    // fetch argument values
-    int _arg_count = lua_gettop(state);
-    for(int i = 1; i < _arg_count; i++){
-      variant* _val = to_variant(state, i+1);
-      _arg_arr.append_var(_val);
-
-      cpplua_delete_variant(_val);
-    }
-    
-    _lf(_obj, &_arg_arr, &_result_arr);
-
-    // push results
-    for(int i = 0; i < _result_arr.get_var_count(); i++){
-      variant* _val = cpplua_create_var_copy(_result_arr.get_var(i));
-      if(_val->get_type() == error_var::get_static_lua_type())
-        throw (error_var*)_val;
-
-      _val->push_to_stack(state);
-      cpplua_delete_variant(_val);
-    }
-
-    return _result_arr.get_var_count();
-  });
-}
-
-int object_var::_on_obj_removed(lua_State* state){
-  return protected_callcpp<int, 0>(state, [](lua_State* state){
-    I_object* _obj = _get_obj_from_table(state, 1);
-    if(!_obj){
-      lua_getglobal(state, "print");
-      lua_pushstring(state, "[WARN][CPPLua] Object already deleted.");
-      lua_pcall(state, 1, 0, 0);
-
-      return 0;
-    }
-
-    lua_getmetatable(state, 1);
-    
-    lua_pushstring(state, OBJECT_VAR_REF_VALUE_NAME);
-    lua_pushlightuserdata(state, NULL);
-    lua_rawset(state, -3);
-
-    lua_pop(state, 1);
-
-    _obj->get_this_destructor()(_obj);
-
-    return 0;
-  });
-}
-
-
-I_object* object_var::_get_obj_from_table(lua_State* state, int table_idx){
-  if(table_idx < 0)
-    table_idx = LUA_CONV_T2B(state, table_idx);
-
-  int _prev_stack = lua_gettop(state);
-  int _check, _type;
-
-  I_object* _result = NULL;
-
-  lua_getmetatable(state, table_idx);
-
-  lua_pushstring(state, OBJECT_VAR_REF_VALUE_NAME);
-  _type = lua_rawget(state, -2);
-  if(_type != LUA_TLIGHTUSERDATA)
-    goto on_skip_label;
-
-  _result = (I_object*)lua_touserdata(state, -1);
-  lua_pop(state, 2);
-
-  on_skip_label:{}
-
-  int _stack_delta = lua_gettop(state) - _prev_stack;
-  if(_stack_delta > 0)
-    lua_pop(state, _stack_delta);
-
-  return _result;
 }
 
 
@@ -1304,24 +1772,12 @@ object_var* object_var::create_copy_static(const I_object_var* data){
 
 
 bool object_var::from_state(lua_State* state, int stack_idx){
-  if(lua_type(state, stack_idx) != LUA_TTABLE)
+  I_object* _test_obj = object::get_obj_from_table(state, stack_idx);
+  if(!_test_obj)
     return false;
 
-  bool _retval = true;
-  int _type = lua_getfield(state, stack_idx, OBJECT_VAR_REF_VALUE_NAME);
-  if(_type != LUA_TLIGHTUSERDATA){
-    _retval = false;
-    goto on_skip_label;
-  }
-
-  _obj = (I_object*)lua_touserdata(state, -1);
-
-
-  on_skip_label:{
-    lua_pop(state, 1);
-  }
-
-  return _retval;
+  _obj = _test_obj;
+  return true;
 }
 
 void object_var::push_to_stack(lua_State* state) const{
@@ -1331,33 +1787,7 @@ void object_var::push_to_stack(lua_State* state) const{
   // for the object
   lua_newtable(state);
 
-  // object's metatable
-  lua_newtable(state);
-
-  // push garbage collector function
-  lua_pushstring(state, "__gc");
-  lua_pushcfunction(state, _on_obj_removed);
-  lua_rawset(state, -3);
-
-  // push obj
-  lua_pushstring(state, OBJECT_VAR_REF_VALUE_NAME);
-  lua_pushlightuserdata(state, _obj);
-  lua_rawset(state, -3);
-
-  // set object's metatable
-  lua_setmetatable(state, -2);
-
-  // push functions
-  for(int i = 0; i < _obj->get_function_count(); i++){
-    // fname
-    lua_pushstring(state, _obj->get_function_name(i));
-
-    // c closure
-    lua_pushinteger(state, i);
-    lua_pushcclosure(state, _on_obj_called, 1);
-    
-    lua_settable(state, -3);
-  }
+  object::push_object_to_table(state, _obj, -1);
 }
 
 variant* object_var::create_copy() const{
@@ -1391,6 +1821,7 @@ I_object* object_var::get_object_reference() const{
 
 
 // MARK: lua::comparison_variant def
+
 comparison_variant::comparison_variant(const variant* from){
   _init_class(from);
 }
@@ -1464,6 +1895,7 @@ const variant* comparison_variant::get_comparison_data() const{
 
 
 // MARK: lua::to_variant
+
 variant* lua::to_variant(lua_State* state, int stack_idx){
   variant* _result;
 
@@ -1489,6 +1921,10 @@ variant* lua::to_variant(lua_State* state, int stack_idx){
       _result = new lightuser_var(state, stack_idx);
     }
 
+    break; case function_var::get_static_lua_type():{
+      _result = new function_var(state, stack_idx);
+    }
+
     break; default:{
       _result = new variant();
     }
@@ -1499,6 +1935,7 @@ variant* lua::to_variant(lua_State* state, int stack_idx){
 
 
 // MARK:: lua::to_variant_fglobal
+
 variant* lua::to_variant_fglobal(lua_State* state, const char* global_name){
   lua_getglobal(state, global_name);
   variant* _result = lua::to_variant(state, -1);
@@ -1508,6 +1945,7 @@ variant* lua::to_variant_fglobal(lua_State* state, const char* global_name){
 }
 
 // MARK:: lua::to_variant_ref
+
 variant* lua::to_variant_ref(lua_State* state, int stack_idx){
   const void* _pointer_ref = lua_topointer(state, stack_idx);
   string_var* _var_res = new string_var(format_str("p_ref 0x%X", _pointer_ref));
@@ -1517,6 +1955,7 @@ variant* lua::to_variant_ref(lua_State* state, int stack_idx){
 
 
 // MARK: lua::from_pointer_to_str
+
 string_var lua::from_pointer_to_str(void* pointer){
   long long _pointer_num = (long long)pointer;
   return string_var(reinterpret_cast<const char*>(_pointer_num), sizeof(long long));
@@ -1524,6 +1963,7 @@ string_var lua::from_pointer_to_str(void* pointer){
 
 
 // MARK: lua::from_str_to_pointer
+
 void* lua::from_str_to_pointer(const string_var& str){
   long long _pointer_num = *(reinterpret_cast<const long long*>(str.get_string()));
   return (void*)_pointer_num;
@@ -1555,6 +1995,9 @@ lua::variant* cpplua_create_var_copy(const lua::I_variant* data){
     break; case object_var::get_static_lua_type():
       return object_var::create_copy_static(dynamic_cast<const I_object_var*>(data));
 
+    break; case function_var::get_static_lua_type():
+      return function_var::create_copy_static(dynamic_cast<const I_function_var*>(data));
+
     break; default:
       return new nil_var();
   }
@@ -1584,4 +2027,25 @@ DLLEXPORT const char* CPPLUA_GET_TYPE_NAME(int type_name){
     break; case LUA_TLIGHTUSERDATA: return "Lua-Light-Userdata";
     break; default: return "UNK";
   }
+}
+
+
+
+class _api_variant_util_definition: public lua::api::I_variant_util{
+  public:
+    I_variant* to_variant(void* istate, int stack_idx) override{return lua::to_variant((lua_State*)istate, stack_idx);}
+    I_variant* to_variant_fglobal(void* istate, const char* name) override{return lua::to_variant_fglobal((lua_State*)istate, name);}
+    I_variant* to_variant_ref(void* istate, int stack_idx) override{return lua::to_variant_ref((lua_State*)istate, stack_idx);}
+
+    void push_variant(void* istate, const I_variant* var) override{dynamic_cast<const variant*>(var)->push_to_stack((lua_State*)istate);}
+
+    I_variant* create_variant_copy(const I_variant* var) override{return cpplua_create_var_copy(var);}
+    void delete_variant(const I_variant* var) override{cpplua_delete_variant(var);}
+};
+
+
+static _api_variant_util_definition __api_def;
+
+DLLEXPORT lua::api::I_variant_util* CPPLUA_GET_API_VARIANT_UTIL_DEFINITION(){
+  return &__api_def;
 }

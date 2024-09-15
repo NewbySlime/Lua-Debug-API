@@ -3,6 +3,7 @@
 #include "../src/luafunction_database.h"
 #include "../src/luaobject_helper.h"
 #include "../src/luaruntime_handler.h"
+#include "../src/lualib_loader.h"
 
 
 using namespace lua;
@@ -46,10 +47,18 @@ void _test_cb(const I_vararr* args, I_vararr* results){
 int main(){
   runtime_handler* _rh = new runtime_handler("TestSrc/test_object.lua", false);
   func_db* _fdb = _rh->get_function_database();
+  lib_loader* _lib_loader = _rh->get_library_loader();
+
   _fdb->expose_c_function_nonstrict("create_test", _test_cb);
 
   HANDLE _event = CreateEvent(NULL, FALSE, FALSE, NULL);
   _rh->register_event_execution_finished(_event);
+
+  test_object* _object1 = new test_object();
+  test_object* _object2 = new test_object();
+  _lib_loader->load_library("test_lib", _object1);
+  _lib_loader->load_library("test_lib", _object2);
+  _lib_loader->load_library("test_lib", _object2);
 
   _rh->run_execution([](void* data){
     runtime_handler* _rh = (runtime_handler*)data;

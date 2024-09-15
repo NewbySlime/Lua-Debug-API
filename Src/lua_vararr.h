@@ -18,6 +18,8 @@ namespace lua{
       virtual bool set_var(const lua::I_variant* data, int idx) = 0;
       virtual void append_var(const lua::I_variant* data) = 0;
 
+      virtual void clear() = 0;
+
       virtual std::size_t get_var_count() const = 0;
   };
 
@@ -31,9 +33,12 @@ namespace lua{
       ~vararr();
 
       const lua::I_variant* get_var(int idx) const override;
+      const lua::variant* get_self_var(int idx) const;
 
       bool set_var(const lua::I_variant* data, int idx) override;
       void append_var(const lua::I_variant* data) override;
+
+      void clear() override;
 
       std::size_t get_var_count() const override;
   };

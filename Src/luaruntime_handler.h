@@ -7,6 +7,7 @@
 #include "luadebug_hookhandler.h"
 #include "luadebug_executionflow.h"
 #include "luafunction_database.h"
+#include "lualib_loader.h"
 #include "library_linking.h"
 #include "macro_helper.h"
 
@@ -30,6 +31,7 @@ namespace lua{
       virtual lua::I_func_db* get_function_database_interface() = 0;
       virtual lua::debug::I_hook_handler* get_hook_handler_interface() = 0;
       virtual lua::debug::I_execution_flow* get_execution_flow_interface() = 0;
+      virtual lua::I_lib_loader* get_library_loader_interface() = 0;
 
       virtual void stop_execution() = 0;
       virtual bool run_execution(execution_context cb, void* cbdata) = 0;
@@ -86,6 +88,8 @@ namespace lua{
 
       lua::func_db* _function_database = NULL;
 
+      lua::lib_loader* _library_loader = NULL;
+
       lua::variant* _last_err_obj = NULL;
 
 
@@ -117,10 +121,12 @@ namespace lua{
       lua::func_db* get_function_database();
       lua::debug::hook_handler* get_hook_handler();
       lua::debug::execution_flow* get_execution_flow();
+      lua::lib_loader* get_library_loader();
 
       lua::I_func_db* get_function_database_interface() override;
       lua::debug::I_hook_handler* get_hook_handler_interface() override;
       lua::debug::I_execution_flow* get_execution_flow_interface() override;
+      lua::I_lib_loader* get_library_loader_interface() override;
 
       void stop_execution() override;
       bool run_execution(execution_context cb, void* cbdata) override;

@@ -5,6 +5,9 @@
 #include "lua_variant.h"
 
 
+// When function to be called wants to throw a Lua error, a user function should add error_var as the first result value.
+// If function does not want to throw, but wanted to return an error value, the function should return it after the first result value (can be padded with nil_var).
+
 namespace lua{
   namespace object{
     struct fdata{
@@ -28,6 +31,7 @@ namespace lua{
       protected:
         object_destructor_func _deinit_func;
 
+        // NOTE: for array termination, it uses fdata object that has NULL values
         void set_function_data(const fdata* list);
 
       public:
@@ -42,6 +46,10 @@ namespace lua{
         lua_function get_function(int idx) const override;
         
     };
+
+
+    I_object* get_obj_from_table(lua_State* state, int table_idx);
+    void push_object_to_table(lua_State* state, I_object* object, int table_idx);
   }
 };
 

@@ -9,10 +9,7 @@ vararr::vararr(){
 
 
 vararr::~vararr(){
-  for(auto var: _data_arr)
-    cpplua_delete_variant(var);
-  
-  _data_arr.clear();
+  clear();
 }
 
 
@@ -35,6 +32,14 @@ bool vararr::set_var(const I_variant* data, int idx){
 
 void vararr::append_var(const I_variant* data){
   _data_arr.insert(_data_arr.end(), cpplua_create_var_copy(data));
+}
+
+
+void vararr::clear(){
+  for(auto var: _data_arr)
+    cpplua_delete_variant(var);
+  
+  _data_arr.clear();
 }
 
 

@@ -79,6 +79,7 @@ runtime_handler::~runtime_handler(){
   delete _execution_flow;
   delete _function_database;
   delete _hook_handler;
+  delete _library_loader;
 
   if(_create_own_lua_state)
     lua_close(_state);
@@ -131,6 +132,8 @@ void runtime_handler::_initiate_class(){
   _execution_flow = new execution_flow(_state);
 
   _function_database = new func_db(_state);
+
+  _library_loader = new lib_loader(_state);
 }
 
 
@@ -200,6 +203,10 @@ execution_flow* runtime_handler::get_execution_flow(){
   return _execution_flow;
 }
 
+lib_loader* runtime_handler::get_library_loader(){
+  return _library_loader;
+}
+
 
 I_func_db* runtime_handler::get_function_database_interface(){
   return _function_database;
@@ -211,6 +218,10 @@ I_hook_handler* runtime_handler::get_hook_handler_interface(){
 
 I_execution_flow* runtime_handler::get_execution_flow_interface(){
   return _execution_flow;
+}
+
+I_lib_loader* runtime_handler::get_library_loader_interface(){
+  return _library_loader;
 }
 
 
@@ -351,6 +362,7 @@ void runtime_handler::set_logger(I_logger* logger){
   _hook_handler->set_logger(logger);
   _execution_flow->set_logger(logger);
   _function_database->set_logger(logger);
+  _library_loader->set_logger(logger);
 }
 
 

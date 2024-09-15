@@ -4,6 +4,9 @@
 #include "I_logger.h"
 #include "library_linking.h"
 #include "lua_includes.h"
+#include "luaapi_stack.h"
+#include "luaapi_value.h"
+#include "luaI_object.h"
 #include "macro_helper.h"
 #include "string_store.h"
 
@@ -24,6 +27,11 @@ namespace lua{
   class comparison_variant;
   class I_vararr;
   class vararr;
+
+  namespace api{
+    class I_table_util;
+    class I_variant_util;
+  }
 
 
 
@@ -273,13 +281,17 @@ namespace lua{
 
   
   // MARK: table_var
+  // NOTE: Every lua::variant copy it returns, make sure to delete using the same compilation code the same as table_var created with.
 
   class I_table_var: virtual public I_variant{
     public:
       constexpr static int get_static_lua_type(){return LUA_TTABLE;}
 
+      virtual I_table_var* create_table_copy() const = 0;
+
       // returns NULL-terminated array
       virtual const I_variant** get_keys() const = 0;
+      virtual void update_keys() = 0;
 
       // This will create a copy
       virtual I_variant* get_value(const I_variant* key) = 0;
@@ -289,6 +301,14 @@ namespace lua{
       virtual void set_value(const I_variant* key, const I_variant* data) = 0;
 
       virtual bool remove_value(const I_variant* key) = 0;
+
+      virtual bool is_reference() const = 0;
+      virtual const void* get_table_pointer() const = 0;
+      virtual void* get_lua_interface() const = 0;
+      virtual lua::api::I_value* get_lua_value_api_interface() const = 0;
+      virtual lua::api::I_stack* get_lua_stack_api_interface() const = 0;
+      virtual lua::api::I_table_util* get_lua_table_api_interface() const = 0;
+      virtual lua::api::I_variant_util* get_lua_variant_api_interface() const = 0;
   };
 
   // Can parse Global table, but it will skip "_G" value
@@ -296,18 +316,63 @@ namespace lua{
     private:
       const I_variant** _keys_buffer;
 
-      std::map<comparison_variant, variant*> _table_data;
+      bool _is_ref = true;
+
+      std::map<comparison_variant, variant*>* _table_data = NULL;
+
+      void* _lua_state;
+      const void* _table_pointer = NULL;
+
+      lua::api::I_stack* _api_stack = NULL;
+      lua::api::I_value* _api_value = NULL;
+
+      lua::api::I_variant_util* _api_var = NULL;
+      lua::api::I_table_util* _api_table = NULL;
 
       void _init_class();
 
       void _copy_from_var(const table_var& var);
-
       void _clear_table_data();
 
+      // LUA PARAM: the table value should be pushed (as the top most) beforehand
+      //  it will not pop the table value
+      // NOTE: this will replace the metadata with the new one, to add a reference, use _increment_reference()
+      void _create_reference();
+      // NOTE: this will remove the metadata value. Use _reference_count() and _decrement_reference() for remove a reference but don't remove the metadata.
+      void _delete_reference();
+      // if no ref table in the global field, it will create a new one
+      // pushes the global metadata list as the top stack [+0,+1,-]
+      void _require_global_table() const;
+
+      // pushes metadata for this table reference at the top [+0,+1,-]
+      // WARN: Usage of this function is prohibited when the metadata is not prepared. For creating metadata reference, see _create_reference().
+      void _push_metadata_table() const;
+      // pushes the actual table data at the top [+0,+1,-]
+      // WARN: Usage of this function is prohibited when the metadata is not prepared. For creating metadata reference, see _create_reference().
+      void _push_actual_table() const;
+
+      void _increment_reference();
+      void _decrement_reference();
+      int _get_reference_count();
+
+      bool _has_reference_metadata();
+
+      static std::string _get_reference_key(const void* pointer);
+
+      // used for creating copy from lua_State
       static void _fs_iter_cb(lua_State* state, int key_stack, int val_stack, int iter_idx, void* cb_data);
+      // needed api interface for use:
+      //  lua::api::I_table_util
+      //  lua::api::I_value
+      //  lua::api::I_variant_util
+      bool _from_state_copy_by_interface(void* istate, int stack_idx);
+
+      variant* _get_value_by_interface(const I_variant* key) const;
+      void _set_value_by_interface(const I_variant* key, const I_variant* value);
+      bool _remove_value_by_interface(const I_variant* key);
 
       variant* _get_value(const comparison_variant& comp_var) const;
-      I_variant* _get_value(const I_variant* key) const;
+      variant* _get_value(const I_variant* key) const;
 
       void _set_value(const comparison_variant& comp_key, const variant* value);
       void _set_value(const I_variant* key, const I_variant* value);
@@ -330,13 +395,18 @@ namespace lua{
       static table_var* create_copy_static(const I_table_var* data);
 
       bool from_state(lua_State* state, int stack_idx) override;
+      bool from_state_copy(lua_State* state, int stack_idx);
+
       void push_to_stack(lua_State* state) const override;
       variant* create_copy() const override;
 
       void to_string(I_string_store* pstring) const override;
       std::string to_string() const override;
 
+      I_table_var* create_table_copy() const override;
+
       const I_variant** get_keys() const override;
+      void update_keys() override;
 
       variant* get_value(const comparison_variant& comp_var);
       I_variant* get_value(const I_variant* key) override;
@@ -349,6 +419,14 @@ namespace lua{
 
       bool remove_value(const comparison_variant& comp_var);
       bool remove_value(const I_variant* key) override;
+
+      bool is_reference() const;
+      const void* get_table_pointer() const;
+      void* get_lua_interface() const;
+      lua::api::I_value* get_lua_value_api_interface() const;
+      lua::api::I_stack* get_lua_stack_api_interface() const;
+      lua::api::I_table_util* get_lua_table_api_interface() const;
+      lua::api::I_variant_util* get_lua_variant_api_interface() const;
   };
 
 
@@ -402,6 +480,58 @@ namespace lua{
 
 
 
+  // MARK: function_var
+  
+  class I_function_var: virtual public I_variant{
+    public:
+      constexpr static int get_static_lua_type(){return LUA_TFUNCTION;}
+
+      virtual I_vararr* get_arg_closure() = 0;
+      virtual const I_vararr* get_arg_closure() const = 0;
+
+      virtual lua_CFunction get_function() const = 0;
+      virtual void set_function(lua_CFunction fn) = 0;
+  };
+
+  // NOTE: for now, only cfunction that can be stored
+  class function_var: public I_function_var, public variant{
+    private:
+      lua_CFunction _this_fn = NULL;
+      vararr* _fn_args = NULL;
+
+      void _init_class();
+
+    protected:
+      // compared results are based on the function pointer
+      int _compare_with(const variant* rhs) const override;
+
+    public:
+      function_var(lua_CFunction fn, const I_vararr* args = NULL);
+      function_var(lua_State* state, int stack_idx);
+      ~function_var();
+
+      int get_type() const override;
+
+      static function_var* create_copy_static(const I_function_var* data);
+      
+      bool from_state(lua_State* state, int stack_idx) override;
+      // NOTE: pushing to stack with bound CFunction as NULL, it will push a nil value.
+      void push_to_stack(lua_State* state) const override;
+      variant* create_copy() const override;
+
+      std::string to_string() const;
+      void to_string(I_string_store* pstring) const override;
+
+      I_vararr* get_arg_closure() override;
+      const I_vararr* get_arg_closure() const override;
+
+      lua_CFunction get_function() const override;
+      void set_function(lua_CFunction fn) override;
+  };
+
+
+
+
   // MARK: error_var
 
   class I_error_var: virtual public I_variant{
@@ -409,18 +539,18 @@ namespace lua{
       constexpr static int get_static_lua_type(){return LUA_TERROR;}
 
       virtual const I_variant* get_error_data_interface() const = 0;
-      virtual int get_error_code() const = 0;
+      virtual long long get_error_code() const = 0;
   };
 
   class error_var: public variant, public I_error_var{
     private:
       variant* _err_data = NULL;
-      int _error_code = -1;
+      long long _error_code = -1;
 
     public:
       error_var();
       error_var(const error_var& var);
-      error_var(const variant* data, int code);
+      error_var(const variant* data, long long code);
       error_var(lua_State* state, int stack_idx);
       ~error_var();
 
@@ -438,7 +568,7 @@ namespace lua{
       const variant* get_error_data() const;
       const I_variant* get_error_data_interface() const override;
 
-      int get_error_code() const override;
+      long long get_error_code() const override;
 
       void set_error_code(int error_code);
   };
@@ -447,28 +577,8 @@ namespace lua{
 
 
   // MARK: object_var
-
-  class I_debuggable_object{
-    // later implementation
-  };
-
-  // Since this object will be collected by Lua as "garbage", it is a good practice to let it "leak" in C/C++ scope
-  // Also, do not create the object in stack memory as it will be put in Lua
-  class I_object{
-    public:
-      typedef void (*object_destructor_func)(I_object* object);
-      typedef void (*lua_function)(I_object* object, const I_vararr* parameters, I_vararr* results);
-
-      virtual ~I_object(){}
-
-      virtual object_destructor_func get_this_destructor() const = 0;
-
-      virtual int get_function_count() const = 0;
-      virtual const char* get_function_name(int idx) const = 0;
-      virtual lua_function get_function(int idx) const = 0;
-
-      virtual I_debuggable_object* as_debug_object() = 0;
-  };
+  // See luaobject_helper.h for more information
+  // NOTE: object_var does not store the actual type of the stored object
 
   // NOTE: Actual representation in Lua is a table with metamethods
   class I_object_var: virtual public I_variant{
@@ -486,12 +596,6 @@ namespace lua{
   class object_var: public I_object_var, public variant{
     private:
       I_object* _obj = NULL;
-
-      static int _on_obj_called(lua_State* state);
-      static int _on_obj_removed(lua_State* state);
-
-      // index based from the bottom
-      static I_object* _get_obj_from_table(lua_State* state, int table_idx);
 
     public:
       object_var();
@@ -553,8 +657,26 @@ namespace lua{
   // Pointer value (in lua) parsed to string variant.
   variant* to_variant_ref(lua_State* state, int stack_idx);
 
+  void push_variant(lua_State* state, const variant* var);
+
   string_var from_pointer_to_str(void* pointer);
   void* from_str_to_pointer(const string_var& str);
+
+
+  namespace api{
+    class I_variant_util{
+      public:
+        virtual I_variant* to_variant(void* istate, int stack_idx) = 0;
+        virtual I_variant* to_variant_fglobal(void* istate, const char* global_name) = 0;
+        virtual I_variant* to_variant_ref(void* istate, int stack_idx) = 0;
+
+        // NOTE: var code functions should be the same as this interface compilation
+        virtual void push_variant(void* istate, const I_variant* var) = 0;
+
+        virtual I_variant* create_variant_copy(const I_variant* var) = 0;
+        virtual void delete_variant(const I_variant* var) = 0;
+    };
+  }
 }
 
 
@@ -576,13 +698,19 @@ lua::variant* cpplua_create_var_copy(const lua::I_variant* data);
 #define CPPLUA_GET_TYPE_NAME cpplua_get_type_name
 #define CPPLUA_GET_TYPE_NAME_STR MACRO_TO_STR_EXP(CPPLUA_GET_TYPE_NAME)
 
+#define CPPLUA_GET_API_VARIANT_UTIL_DEFINITION cpplua_get_api_variant_util_definition
+#define CPPLUA_GET_API_VARIANT_UTIL_DEFINITION_STR MACRO_TO_STR_EXP(CPPLUA_GET_API_VARIANT_UTIL_DEFINITION)
+
 typedef void (__stdcall *var_set_def_logger_func)(I_logger* logger);
 typedef void (__stdcall *del_var_func)(const lua::I_variant* data);
 typedef const char* (__stdcall *get_type_name_func)(int type_name);
+typedef lua::api::I_variant_util* (__stdcall *get_api_variant_util_func)();
 
 DLLEXPORT void CPPLUA_VARIANT_SET_DEFAULT_LOGGER(I_logger* logger);
 DLLEXPORT void CPPLUA_DELETE_VARIANT(const lua::I_variant* data);
 
 DLLEXPORT const char* CPPLUA_GET_TYPE_NAME(int type_name);
+
+DLLEXPORT lua::api::I_variant_util* CPPLUA_GET_API_VARIANT_UTIL_DEFINITION();
 
 #endif
