@@ -221,7 +221,7 @@ bool func_db::expose_c_function_nonstrict(const char* function_name, function_cb
   _c_func_metadata* _metadata = _c_get_metadata(_fname_stdstr);
   if(_metadata){
     if(_current_logger){
-      _current_logger->print_error(format_str("[func_db] Cannot expose C function '%s'. Reason: another function with the same name already exposed."));
+      _current_logger->print_error(format_str("[func_db] Cannot expose C function '%s'. Reason: another function with the same name already exposed.").c_str());
     }
 
     return false;
@@ -248,7 +248,7 @@ bool func_db::call_lua_function_nonstrict(const char* function_name, const lua::
   int _type = lua_getglobal(_this_state, function_name);
   if(_type != LUA_TFUNCTION){
     if(_current_logger){
-      _current_logger->print_error(format_str("[func_db] Cannot call function. Reason: '%s' is not a function.\n", function_name));
+      _current_logger->print_error(format_str("[func_db] Cannot call function. Reason: '%s' is not a function.\n", function_name).c_str());
     }
 
     goto on_skip_label;

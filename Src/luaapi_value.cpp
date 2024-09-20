@@ -3,7 +3,7 @@
 using namespace lua::api;
 
 
-static class _api_value_function: public I_value{
+class _api_value_function: public I_value{
   public:
     void arith(void* istate, int op) override{lua_arith((lua_State*)istate, op);}
     int compare(void* istate, int idx1, int idx2, int op) override{return lua_compare((lua_State*)istate, idx1, idx2, op);}
@@ -40,7 +40,7 @@ static class _api_value_function: public I_value{
     void pushglobaltable(void* istate) override{lua_pushglobaltable((lua_State*)istate);}
     void pushinteger(void* istate, lua_Integer n) override{lua_pushinteger((lua_State*)istate, n);}
     void pushlightuserdata(void* istate, void* p) override{lua_pushlightuserdata((lua_State*)istate, p);}
-    const char* pushliteral(void* istate, const char* str) override{return lua_pushliteral((lua_State*)istate, str);}
+    const char* pushliteral(void* istate, const char* str) override{return lua_pushstring((lua_State*)istate, str);}
     const char* pushlstring(void* istate, const char* str, size_t len) override{return lua_pushlstring((lua_State*)istate, str, len);}
     void pushnil(void* istate) override{lua_pushnil((lua_State*)istate);}
     void pushnumber(void* istate, lua_Number n) override{lua_pushnumber((lua_State*)istate, n);}
@@ -78,8 +78,10 @@ static class _api_value_function: public I_value{
     const char* pushfstring(void* istate, const char* fmt, ...) override{
       va_list _list;
       va_start(_list, fmt);
-      pushvfstring(istate, fmt, _list);
+      const char* _res = pushvfstring(istate, fmt, _list);
       va_end(_list);
+
+      return _res;
     }
 };
 

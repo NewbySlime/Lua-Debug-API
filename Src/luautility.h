@@ -7,11 +7,13 @@
 
 
 namespace lua::utility{
-  template<lua::api::I_stack* api_s = cpplua_get_api_stack_definition(), lua::api::I_value* api_v = cpplua_get_api_value_definition(), typename T_func, typename T_result, typename... T_args> T_result pstack_call(
+  template<typename T_result, typename T_func, typename... T_args> T_result pstack_call(
     void* istate,
-    T_func fn,
     int expected_offset_max,
     int expected_offset_min,
+    lua::api::I_stack* api_s,
+    lua::api::I_value* api_v,
+    T_func fn,
     T_args... args
   ){
     int _prev_stack = api_s->gettop(istate);
@@ -25,6 +27,8 @@ namespace lua::utility{
       for(int i = _delta_stack; i < expected_offset_min; i++)
         api_v->pushnil(istate);
     }
+
+    return _res;
   }
 }
 

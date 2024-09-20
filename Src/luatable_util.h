@@ -12,6 +12,7 @@ namespace lua{
   typedef void (*table_iter_callback) (lua_State* state, int key_stack_idx, int value_stack_idx, int iter_idx, void* cb_data);
 
   void iterate_table(lua_State* state, int stack_idx, table_iter_callback callback, void* cb_data = NULL);
+  size_t table_len(lua_State* state, int stack_idx);
 
 
   // only accept key in string, boolean and number
@@ -25,8 +26,9 @@ namespace lua{
     class I_table_util{
       public:
         virtual void iterate_table(void* istate, int stack_idx, table_iter_callback callback, void* cb_data = NULL) = 0;
+        virtual size_t table_len(void* istate, int stack_idx) = 0;
         virtual I_variant* get_table_value(void* istate, int stack_idx, const I_variant* key) = 0;
-        virtual void set_table_value(void* istate, int stack_idx, const I_variant* key, const I_variant* value);
+        virtual void set_table_value(void* istate, int stack_idx, const I_variant* key, const I_variant* value) = 0;
     };
   }
 }

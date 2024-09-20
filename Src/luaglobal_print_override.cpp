@@ -28,7 +28,7 @@ print_override::print_override(lua_State* state){
 
   print_override* _current_obj = get_attached_object(state);
   if(_current_obj){
-    _logger->print(format_str("Cannot create print_override. Reason: lua_State already has print_override.\n"));
+    _logger->print(format_str("Cannot create print_override. Reason: lua_State already has print_override.\n").c_str());
     return;
   }
 

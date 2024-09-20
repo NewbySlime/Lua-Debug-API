@@ -10,6 +10,8 @@
 
 
 namespace lua::lib{
+  class file_Handler;
+
   class io_handler: public lua::object::function_store, virtual public I_object{
     public:
       struct constructor_param{
@@ -57,6 +59,12 @@ namespace lua::lib{
         open_temporary        = 0b100000
       };
 
+      enum seek_opt{
+        seek_begin    = 0x0,
+        seek_current  = 0x1,
+        seek_current  = 0x2
+      };
+
 
     private:
       int _op_code;
@@ -79,6 +87,14 @@ namespace lua::lib{
       void _clear_error();
       void _set_last_error(long long err_code, const std::string& err_msg);
 
+      // filter to skip
+      void _skip_str(bool(*filter_cb)(char ch));
+      // filter to stop read
+      std::string _read_str(bool(*filter_cb)(char ch));
+      std::string _read_bytes(size_t count);
+
+      void _seek(seek_opt opt, int offset);
+
       void _fill_error_with_last(I_vararr* result);
 
     public:
@@ -97,6 +113,12 @@ namespace lua::lib{
       static void seek(I_object* obj, const I_vararr* args, I_vararr* res);
       static void setvbuf(I_object* obj, const I_vararr* args, I_vararr* res);
       static void write(I_object* obj, const I_vararr* args, I_vararr* res);
+
+      bool end_of_file_reached();
+      size_t get_remaining_read();
+
+      I_debuggable_object* as_debug_object() override;
+      void on_object_added(void* istate) override;
   };
 }
 

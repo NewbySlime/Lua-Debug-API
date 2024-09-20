@@ -5,6 +5,7 @@
 #include "luaobject_helper.h"
 #include "luastack_iter.h"
 #include "luatable_util.h"
+#include "luautility.h"
 #include "stdlogger.h"
 #include "strutil.h"
 
@@ -21,8 +22,13 @@
 #define TABLE_METADATA_ACTUAL_VALUE "value"
 #define TABLE_METADATA_REFERENCE_COUNT "ref_count"
 
+#define FUNCTION_REFERENCE_GLOBAL_DATA "__clua_func_ref_data"
+#define FUNCTION_METADATA_ACTUAL_VALUE "value"
+#define FUNCTION_METADATA_REFERENCE_COUNT "ref_count"
+
 
 using namespace lua;
+using namespace lua::utility;
 
 
 stdlogger _default_logger = stdlogger();
@@ -30,7 +36,7 @@ const I_logger* _logger = &_default_logger;
 
 
 
-// MARK: lua::set_default_logger
+// MARK: set_default_logger
 
 void lua::set_default_logger(I_logger* logger){
   _logger = logger;
@@ -39,7 +45,7 @@ void lua::set_default_logger(I_logger* logger){
 
 
 
-// MARK: lua::variant def
+// MARK: variant def
 
 variant::variant(){}
 
@@ -80,7 +86,7 @@ void variant::setglobal(lua_State* state, const char* var_name){
 
 
 
-// MARK: lua::string_var def
+// MARK: string_var def
 
 string_var::string_var(){
   _init_class();
@@ -202,7 +208,7 @@ bool string_var::from_state(lua_State* state, int stack_idx){
         stack_idx,
         lua_typename(state, _type),
         lua_typename(state, get_type())
-      ));
+      ).c_str());
 
       return false;
     }
@@ -331,7 +337,7 @@ std::size_t string_var::get_length() const{
 
 
 
-// MARK: lua::number_var def
+// MARK: number_var def
 
 number_var::number_var(){
   _this_data = 0;
@@ -390,7 +396,7 @@ bool number_var::from_state(lua_State* state, int stack_idx){
       stack_idx,
       lua_typename(state, _type),
       lua_typename(state, get_type())
-    ));
+    ).c_str());
 
     return false;
   }
@@ -521,7 +527,7 @@ bool number_var::operator>=(const number_var& var1) const{
 
 
 
-// MARK: lua::bool_var def
+// MARK: bool_var def
 
 bool_var::bool_var(){
   _this_data = true;
@@ -568,7 +574,7 @@ bool bool_var::from_state(lua_State* state, int stack_idx){
       stack_idx,
       lua_typename(state, _type),
       lua_typename(state, get_type())
-    ));
+    ).c_str());
 
     return false;
   }
@@ -657,7 +663,7 @@ bool bool_var::operator!() const{
 
 
 
-// MARK: lua::table_var def
+// MARK: table_var def
 // NOTE: API interfaces only used when it is using a reference.
 
 struct _self_reference_data{
@@ -701,6 +707,18 @@ void table_var::_init_class(){
     _sr_data_map = new std::map<std::thread::id, _self_reference_data*>();
 
   _init_keys_reg();
+}
+
+
+void table_var::_init_table_ref(){
+  
+}
+
+void table_var::_init_table_data(){
+  if(_table_data)
+    return;
+
+  _table_data = new std::map<comparison_variant, variant*>();
 }
 
 
@@ -776,6 +794,7 @@ void table_var::_create_reference(){
   // set the metadata to the global list
   _api_value->settable(_lua_state, -3);
 
+  // pop the global table
   _api_stack->pop(_lua_state, 1);
 }
 
@@ -791,6 +810,7 @@ void table_var::_delete_reference(){
   _api_value->pushnil(_lua_state);
   _api_value->settable(_lua_state, -3);
 
+  // pop the global table
   _api_stack->pop(_lua_state, 1);
 }
 
@@ -802,10 +822,14 @@ void table_var::_require_global_table() const{
   if(_ret_type != LUA_TNIL)
     return;
   
+  // pop the nil value first
+  _api_stack->pop(_lua_state, 1);
+  
   _api_value->newtable(_lua_state);
   
+  // create copy for caller
   _api_stack->pushvalue(_lua_state, -1);
-  _api_value->setglobal(_lua_state, TABLE_METADATA_REFERENCE_COUNT);
+  _api_value->setglobal(_lua_state, TABLE_REFERENCE_GLOBAL_DATA);
 }
 
 
@@ -900,6 +924,24 @@ int table_var::_get_reference_count(){
 }
 
 
+bool table_var::_has_reference_metadata(){
+  if(!_table_pointer)
+    return false;
+
+  return pstack_call<bool>(_lua_state, 0, 0, _api_stack, _api_value, [](table_var* _this){
+    _this->_require_global_table();
+    if(_this->_api_value->type(_this->_lua_state, -1) != LUA_TTABLE)
+      return false;
+
+    std::string _key_address = table_var::_get_reference_key(_this->_table_pointer);
+    _this->_api_value->pushstring(_this->_lua_state, _key_address.c_str());
+    _this->_api_value->gettable(_this->_lua_state, -2);
+
+    return _this->_api_value->type(_this->_lua_state, -1) == LUA_TTABLE;
+  }, this);
+}
+
+
 std::string table_var::_get_reference_key(const void* pointer){
   return format_str("0x%X", (unsigned long long)pointer);
 }
@@ -932,7 +974,7 @@ void table_var::_fs_iter_cb(lua_State* state, int key_stack, int val_stack, int 
   if(_value->get_type() == LUA_TNIL){
     string_store _str;
     _key_value->to_string(&_str);
-    _logger->print_warning(format_str("Value of (type %d %s) is Nil. Is this intended?\n", _key_value->get_type(), _str.data.c_str()));
+    _logger->print_warning(format_str("Value of (type %d %s) is Nil. Is this intended?\n", _key_value->get_type(), _str.data.c_str()).c_str());
   }
 
   switch(_key_value->get_type()){
@@ -948,7 +990,7 @@ void table_var::_fs_iter_cb(lua_State* state, int key_stack, int val_stack, int 
     break; default:{
       _logger->print_error(format_str("Using type (%s) as key is not supported.\n",
         _this->_api_value->ttypename(state, _key_value->get_type())
-      ));
+      ).c_str());
     }
   }
 
@@ -968,7 +1010,7 @@ bool table_var::_from_state_copy_by_interface(void* istate, int stack_idx){
       stack_idx,
       _api_value->ttypename(istate, _type),
       _api_value->ttypename(istate, get_type())
-    ));
+    ).c_str());
 
     return false;
   }
@@ -1056,6 +1098,7 @@ bool table_var::_remove_value_by_interface(const I_variant* key){
   _api_stack->pop(_lua_state, 1);
 
   _update_keys_reg();
+  return true;
 }
 
 
@@ -1129,10 +1172,7 @@ void table_var::_update_keys_reg(){
     // get actual table s+1
     _push_actual_table();
 
-    _api_value->len(_lua_state, -1);
-    int _key_len = _api_value->tointeger(_lua_state, -1);
-    _api_stack->pop(_lua_state, 1);
-
+    int _key_len = _api_table->table_len(_lua_state, -1);
     _keys_buffer = (const I_variant**)realloc(_keys_buffer, (_key_len+1) * sizeof(I_variant*));
 
     struct iter_data{
@@ -1154,6 +1194,7 @@ void table_var::_update_keys_reg(){
     }, &_iterd);
     
     _api_stack->pop(_lua_state, 1);
+    _keys_buffer[_key_len] = NULL;
   }
   else{
     _keys_buffer = (const I_variant**)realloc(_keys_buffer, (_table_data->size()+1) * sizeof(I_variant*));
@@ -1177,7 +1218,8 @@ void table_var::_clear_keys_reg(){
     _idx++;
   }
 
-  _keys_buffer = (const I_variant**)realloc(_keys_buffer, 0);
+  _keys_buffer = (const I_variant**)realloc(_keys_buffer, sizeof(I_variant*));
+  _keys_buffer[0] = NULL;
 }
 
 
@@ -1200,10 +1242,14 @@ table_var* table_var::create_copy_static(const I_table_var* data){
     _result->_api_var = data->get_lua_variant_api_interface();
     _result->_api_table = data->get_lua_table_api_interface();
 
+    _result->_init_table_ref();
+
     _result->_increment_reference();
     _result->_update_keys_reg();
   }
   else{
+    _result->_init_table_data();
+
     const I_variant** _key_arr = data->get_keys();
 
     int _idx = 0;
@@ -1235,7 +1281,7 @@ bool table_var::from_state(lua_State* state, int stack_idx){
       stack_idx,
       lua_typename(state, _type),
       lua_typename(state, get_type())
-    ));
+    ).c_str());
 
     return false;
   }
@@ -1246,8 +1292,11 @@ bool table_var::from_state(lua_State* state, int stack_idx){
 
   if(_has_reference_metadata())
     _increment_reference();
-  else
+  else{
+    lua_pushvalue(state, stack_idx);
     _create_reference();
+    lua_pop(state, 1);
+  }
 
   return true;
 }
@@ -1407,7 +1456,7 @@ lua::api::I_variant_util* table_var::get_lua_variant_api_interface() const{
 
 
 
-// MARK: lua::lightuser_var def
+// MARK: lightuser_var def
 
 lightuser_var::lightuser_var(){
   _pointer_data = NULL;
@@ -1455,7 +1504,7 @@ bool lightuser_var::from_state(lua_State* state, int stack_idx){
       stack_idx,
       lua_typename(state, _type),
       lua_typename(state, get_type())
-    ));
+    ).c_str());
 
     return false;
   }
@@ -1527,7 +1576,7 @@ bool lightuser_var::operator>=(const lightuser_var& var1) const{
 
 
 
-// MARK: lua::function_var def
+// MARK: function_var def
 
 function_var::function_var(lua_CFunction fn, const I_vararr* args){
   _init_class();
@@ -1546,12 +1595,195 @@ function_var::function_var(lua_State* state, int stack_idx){
 }
 
 function_var::~function_var(){
-  delete _fn_args;
+  clear_function();
 }
 
 
 void function_var::_init_class(){
+  _init_cfunction();
+}
+
+void function_var::_init_cfunction(){
+  if(_fn_args)
+    return;
+
   _fn_args = new vararr();
+}
+
+
+void function_var::_create_reference(){
+  if(!_luafunc_pointer)
+    return;
+
+  _require_global_table();
+
+  std::string _pkey = _get_reference_key(_luafunc_pointer);
+  _api_value->pushstring(_lua_state, _pkey.c_str());
+  _api_value->newtable(_lua_state);
+
+  // set reference count
+  _api_value->pushstring(_lua_state, FUNCTION_METADATA_REFERENCE_COUNT);
+  _api_value->pushinteger(_lua_state, 1);
+  _api_value->settable(_lua_state, -3);
+
+  // set function value
+  _api_value->pushstring(_lua_state, FUNCTION_METADATA_ACTUAL_VALUE);
+  _api_stack->pushvalue(_lua_state, -5); // copy function value
+  _api_value->settable(_lua_state, -3);
+
+  // set the metadata to the global list
+  _api_value->settable(_lua_state, -3);
+
+  // pop the global table
+  _api_stack->pop(_lua_state, 1);
+}
+
+void function_var::_delete_reference(){
+  if(!_luafunc_pointer)
+    return;
+
+  _require_global_table();
+
+  // remove reference by setting it to nil
+  std::string _pkey = _get_reference_key(_luafunc_pointer);
+  _api_value->pushstring(_lua_state, _pkey.c_str());
+  _api_value->pushnil(_lua_state);
+  _api_value->settable(_lua_state, -3);
+
+  // pop the global table
+  _api_stack->pop(_lua_state, 1);
+}
+
+void function_var::_require_global_table() const{
+  if(!_luafunc_pointer)
+    return;
+
+  int _ret_type = _api_value->getglobal(_lua_state, FUNCTION_REFERENCE_GLOBAL_DATA);
+  if(_ret_type != LUA_TNIL)
+    return;
+
+  // pop the nil value first
+  _api_stack->pop(_lua_state, 1);
+
+  _api_value->newtable(_lua_state);
+
+  // create copy for caller
+  _api_stack->pushvalue(_lua_state, -1);
+  _api_value->setglobal(_lua_state, FUNCTION_REFERENCE_GLOBAL_DATA);
+}
+
+
+void function_var::_push_metadata_table() const{
+  if(!_luafunc_pointer)
+    return;
+
+  // get metadata list s+1
+  _require_global_table();
+
+  // get metadata s+1
+  std::string _pkey = _get_reference_key(_luafunc_pointer);
+  _api_value->pushstring(_lua_state, _pkey.c_str());
+  _api_value->gettable(_lua_state, -2);
+
+  // set the top result as the result and trim the stack
+  _api_stack->insert(_lua_state, -2);
+  _api_stack->pop(_lua_state, 1);
+}
+
+void function_var::_push_actual_function() const{
+  if(!_luafunc_pointer)
+    return;
+
+  // get metadata s+1
+  _push_metadata_table();
+
+  // get actual function s+1
+  _api_value->pushstring(_lua_state, FUNCTION_METADATA_ACTUAL_VALUE);
+  _api_value->gettable(_lua_state, -2);
+
+  // set the top result as the result and trim the stack
+  _api_stack->insert(_lua_state, -2);
+  _api_stack->pop(_lua_state, 1);
+}
+
+
+void function_var::_increment_reference(){
+  if(!_luafunc_pointer)
+    return;
+
+  // get metadata s+1
+  _push_metadata_table();
+
+  _api_value->pushstring(_lua_state, FUNCTION_METADATA_REFERENCE_COUNT);
+  _api_stack->pushvalue(_lua_state, -1); // copy for later use
+  _api_value->gettable(_lua_state, -3);
+
+  // increment reference
+  _api_value->pushinteger(_lua_state, 1);
+  _api_value->arith(_lua_state, LUA_OPADD);
+
+  _api_value->settable(_lua_state, -3);
+
+  _api_stack->pop(_lua_state, 1);
+}
+
+void function_var::_decrement_reference(){
+  if(!_luafunc_pointer)
+    return;
+
+  // get metadata s+1
+  _push_metadata_table();
+
+  _api_value->pushstring(_lua_state, FUNCTION_METADATA_REFERENCE_COUNT);
+  _api_stack->pushvalue(_lua_state, -1); // copy for later use
+  _api_value->gettable(_lua_state, -3);
+
+  // decrement reference
+  _api_value->pushinteger(_lua_state, 1);
+  _api_value->arith(_lua_state, LUA_OPSUB);
+
+  _api_value->settable(_lua_state, -3);
+
+  _api_stack->pop(_lua_state, 1);
+}
+
+int function_var::_get_reference_count(){
+  if(!_luafunc_pointer)
+    return 0;
+
+  // get metadat s+1
+  _push_metadata_table();
+
+  _api_value->pushstring(_lua_state, TABLE_METADATA_REFERENCE_COUNT);
+  _api_value->gettable(_lua_state, -2);
+
+  int _res = _api_value->tointeger(_lua_state, -1);
+  _api_stack->pop(_lua_state, 2);
+
+  return _res;
+}
+
+
+bool function_var::_has_reference_metadata(){
+  if(!_luafunc_pointer)
+    return false;
+
+  return pstack_call<bool>(_lua_state, 0, 0, _api_stack, _api_value, [](function_var* _this){
+    _this->_require_global_table();
+    if(_this->_api_value->type(_this->_lua_state, -1) != LUA_TTABLE)
+      return false;
+
+    std::string _pkey = function_var::_get_reference_key(_this->_luafunc_pointer);
+    _this->_api_value->pushstring(_this->_lua_state, _pkey.c_str());
+    _this->_api_value->gettable(_this->_lua_state, -2);
+
+    return _this->_api_value->type(_this->_lua_state, -1) == LUA_TTABLE;
+  }, this);
+}
+
+
+std::string function_var::_get_reference_key(const void* pointer){
+  return format_str("0x%X", (unsigned long long)pointer);
 }
 
 
@@ -1570,65 +1802,103 @@ int function_var::get_type() const{
 
 
 function_var* function_var::create_copy_static(const I_function_var* data){
-  return new function_var(data->get_function(), data->get_arg_closure());
+  function_var* _res;
+  if(data->is_cfunction())
+    _res = new function_var(data->get_function(), data->get_arg_closure());
+  else{
+    // assuming that there are already reference for this function
+    _res = new function_var();
+
+    _res->_api_stack = data->get_lua_stack_api_definition();
+    _res->_api_value = data->get_lua_value_api_definition();
+
+    _res->_lua_state = data->get_lua_interface();
+    _res->_luafunc_pointer = data->get_lua_function();
+
+    _res->_increment_reference();
+  }
+
+  return _res;
 }
 
 
 bool function_var::from_state(lua_State* state, int stack_idx){
+  clear_function();
+
   int _type = lua_type(state, stack_idx);
   if(_type != get_type()){
     _logger->print_error(format_str("Mismatched type when converting at stack (%d). (%s-%s)\n",
       stack_idx,
       lua_typename(state, _type),
       lua_typename(state, get_type())
-    ));
+    ).c_str());
 
     return false;
   }
 
   if(!lua_iscfunction(state, stack_idx)){
-    _logger->print_error(format_str("Stack Idx (%d) is not a CFunction.\n", stack_idx));
-    
-    return false;
+    _api_stack = cpplua_get_api_stack_definition();
+    _api_value = cpplua_get_api_value_definition();
+
+    _lua_state = state;
+    _luafunc_pointer = lua_topointer(state, stack_idx);
+
+    if(_has_reference_metadata())
+      _increment_reference();
+    else
+      _create_reference();
+  }
+  else{
+    _init_cfunction();
+
+    _this_fn = lua_tocfunction(state, stack_idx);
+    int _func_idx = stack_idx < 0? LUA_CONV_T2B(state, stack_idx): stack_idx; 
+
+    _fn_args->clear();
+    int _idx = 1;
+    while(_idx <= LUAI_MAXSTACK){
+      if(!lua_getupvalue(state, _func_idx, _idx))
+        break;
+
+      variant* _var = to_variant(state, -1);
+      _fn_args->append_var(_var);
+      cpplua_delete_variant(_var);
+
+      lua_pop(state, 1);
+      _idx++;
+    }
   }
 
-  _this_fn = lua_tocfunction(state, stack_idx);
-  int _func_idx = stack_idx < 0? LUA_CONV_T2B(state, stack_idx): stack_idx; 
-
-  _fn_args->clear();
-  int _idx = 1;
-  while(_idx <= LUAI_MAXSTACK){
-    if(!lua_getupvalue(state, _func_idx, _idx))
-      break;
-
-    variant* _var = to_variant(state, -1);
-    _fn_args->append_var(_var);
-    cpplua_delete_variant(_var);
-
-    lua_pop(state, 1);
-  }
+  return true;
 }
 
 void function_var::push_to_stack(lua_State* state) const{
-  if(!_this_fn){
-    lua_pushnil(state);
-    return;
+  if(is_cfunction()){
+    if(!_this_fn){
+      lua_pushnil(state);
+      return;
+    }
+
+    // push the upvalues first
+    for(int i = 0; i < _fn_args->get_var_count(); i++)
+      _fn_args->get_self_var(i)->push_to_stack(state);
+
+    lua_pushcclosure(state, _this_fn, _fn_args->get_var_count());
   }
-
-  // push the upvalues first
-  for(int i = 0; i < _fn_args->get_var_count(); i++)
-    _fn_args->get_self_var(i)->push_to_stack(state);
-
-  lua_pushcclosure(state, _this_fn, _fn_args->get_var_count());
+  else
+    _push_actual_function();
 }
 
 variant* function_var::create_copy() const{
-  return new function_var(_this_fn, _fn_args);
+  return create_copy_static(this);
 }
 
 
 std::string function_var::to_string() const{
-  return format_str("CFunction 0x%X", (unsigned long long)_this_fn);
+  if(is_cfunction())
+    return format_str("CFunction 0x%X", (unsigned long long)_this_fn);
+  else
+    return format_str("LuaFunction 0x%X", (unsigned long long)_luafunc_pointer);
 }
 
 void function_var::to_string(I_string_store* pstring) const{
@@ -1649,14 +1919,61 @@ lua_CFunction function_var::get_function() const{
   return _this_fn;
 }
 
-void function_var::set_function(lua_CFunction fn){
+bool function_var::set_function(lua_CFunction fn){
+  if(_luafunc_pointer)
+    return false;
+
   _this_fn = fn;
+  return true;
+}
+
+
+bool function_var::is_cfunction() const{
+  return _luafunc_pointer == NULL;
+}
+
+
+const void* function_var::get_lua_function() const{
+  return _luafunc_pointer;
+}
+
+
+void function_var::clear_function(){
+  if(_luafunc_pointer){
+    if(_get_reference_count() > 1)
+      _decrement_reference();
+    else
+      _delete_reference();
+
+    _luafunc_pointer = NULL;
+  }
+
+  if(_fn_args){
+    delete _fn_args;
+
+    _this_fn = NULL;
+    _fn_args = NULL;
+  }
+}
+
+
+void* function_var::get_lua_interface() const{
+  return _lua_state;
+}
+
+
+lua::api::I_stack* function_var::get_lua_stack_api_definition() const{
+  return _api_stack;
+}
+
+lua::api::I_value* function_var::get_lua_value_api_definition() const{
+  return _api_value;
 }
 
 
 
 
-// MARK: lua::error_var def
+// MARK: error_var def
 
 error_var::error_var(){
   _err_data = new variant();
@@ -1752,7 +2069,7 @@ void error_var::set_error_code(int code){
 
 
 
-// MARK: lua::object_var def
+// MARK: object_var def
 
 object_var::object_var(){}
 
@@ -1820,7 +2137,7 @@ I_object* object_var::get_object_reference() const{
 
 
 
-// MARK: lua::comparison_variant def
+// MARK: comparison_variant def
 
 comparison_variant::comparison_variant(const variant* from){
   _init_class(from);
@@ -1894,7 +2211,7 @@ const variant* comparison_variant::get_comparison_data() const{
 
 
 
-// MARK: lua::to_variant
+// MARK: to_variant
 
 variant* lua::to_variant(lua_State* state, int stack_idx){
   variant* _result;
@@ -1934,7 +2251,7 @@ variant* lua::to_variant(lua_State* state, int stack_idx){
 }
 
 
-// MARK:: lua::to_variant_fglobal
+// MARK: to_variant_fglobal
 
 variant* lua::to_variant_fglobal(lua_State* state, const char* global_name){
   lua_getglobal(state, global_name);
@@ -1944,7 +2261,7 @@ variant* lua::to_variant_fglobal(lua_State* state, const char* global_name){
   return _result;
 }
 
-// MARK:: lua::to_variant_ref
+// MARK: to_variant_ref
 
 variant* lua::to_variant_ref(lua_State* state, int stack_idx){
   const void* _pointer_ref = lua_topointer(state, stack_idx);
@@ -1954,7 +2271,7 @@ variant* lua::to_variant_ref(lua_State* state, int stack_idx){
 }
 
 
-// MARK: lua::from_pointer_to_str
+// MARK: from_pointer_to_str
 
 string_var lua::from_pointer_to_str(void* pointer){
   long long _pointer_num = (long long)pointer;
@@ -1962,7 +2279,7 @@ string_var lua::from_pointer_to_str(void* pointer){
 }
 
 
-// MARK: lua::from_str_to_pointer
+// MARK: from_str_to_pointer
 
 void* lua::from_str_to_pointer(const string_var& str){
   long long _pointer_num = *(reinterpret_cast<const long long*>(str.get_string()));

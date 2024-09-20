@@ -14,6 +14,10 @@ vararr::~vararr(){
 
 
 const lua::I_variant* vararr::get_var(int idx) const{
+  return get_self_var(idx);
+}
+
+const lua::variant* vararr::get_self_var(int idx) const{
   if(idx < 0 || idx >= _data_arr.size())
     return NULL;
 

@@ -3,7 +3,7 @@
 using namespace lua::api;
 
 
-static class _api_stack_function: public I_stack{
+class _api_stack_function: public I_stack{
   public:
     int absindex(void* istate, int idx) override{return lua_absindex((lua_State*)istate, idx);}
     int checkstack(void* istate, int n) override{return lua_checkstack((lua_State*)istate, n);}

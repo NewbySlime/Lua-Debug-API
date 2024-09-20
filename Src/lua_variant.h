@@ -29,6 +29,8 @@ namespace lua{
   class vararr;
 
   namespace api{
+    class I_stack;
+    class I_value;
     class I_table_util;
     class I_variant_util;
   }
@@ -331,6 +333,9 @@ namespace lua{
 
       void _init_class();
 
+      void _init_table_ref();
+      void _init_table_data();
+
       void _copy_from_var(const table_var& var);
       void _clear_table_data();
 
@@ -486,11 +491,28 @@ namespace lua{
     public:
       constexpr static int get_static_lua_type(){return LUA_TFUNCTION;}
 
+      // Might be NULL if the object is filled with Lua function
       virtual I_vararr* get_arg_closure() = 0;
+      // Might be NULL if the object is filled with Lua function
       virtual const I_vararr* get_arg_closure() const = 0;
 
+      // Might be NULL if it is Lua function
       virtual lua_CFunction get_function() const = 0;
-      virtual void set_function(lua_CFunction fn) = 0;
+      // Cannot be set if the object is filled with Lua function
+      // Try create a new object or use clear_function()
+      virtual bool set_function(lua_CFunction fn) = 0;
+
+      virtual bool is_cfunction() const = 0;
+
+      virtual const void* get_lua_function() const = 0;
+
+      // Used for resetting the object for repurposing it for C function
+      virtual void clear_function() = 0;
+
+      virtual void* get_lua_interface() const = 0;
+
+      virtual lua::api::I_stack* get_lua_stack_api_definition() const = 0;
+      virtual lua::api::I_value* get_lua_value_api_definition() const = 0;
   };
 
   // NOTE: for now, only cfunction that can be stored
@@ -499,14 +521,46 @@ namespace lua{
       lua_CFunction _this_fn = NULL;
       vararr* _fn_args = NULL;
 
+      void* _lua_state;
+      const void* _luafunc_pointer = NULL;
+
+      lua::api::I_stack* _api_stack = NULL;
+      lua::api::I_value* _api_value = NULL;
+
       void _init_class();
+      void _init_cfunction();
+
+      // LUA PARAM: the table value should be pushed (as the top most) beforehand
+      //  it will not pop the table value
+      // NOTE: this will replace the metadata with the new one, to add a reference, use _increment_reference()
+      void _create_reference();
+      // NOTE: this will remove the metadata value. Use _reference_count() and _decrement_reference() for remove a reference but don't remove the metadata.
+      void _delete_reference();
+      // if no ref table in the global field, it will create a new one
+      // pushes the global metadata list as the top stack [+0,+1,-]
+      void _require_global_table() const;
+
+      // pushes metadata for this table reference at the top [+0,+1,-]
+      // WARN: Usage of this function is prohibited when the metadata is not prepared. For creating metadata reference, see _create_reference().
+      void _push_metadata_table() const;
+      // pushes the actual function data at the top [+0,+1,-]
+      // WARN: Usage of this function is prohibited when the metadata is not prepared. For creating metadata reference, see _create_reference().
+      void _push_actual_function() const;
+
+      void _increment_reference();
+      void _decrement_reference();
+      int _get_reference_count();
+
+      bool _has_reference_metadata();
+
+      static std::string _get_reference_key(const void* pointer);
 
     protected:
       // compared results are based on the function pointer
       int _compare_with(const variant* rhs) const override;
 
     public:
-      function_var(lua_CFunction fn, const I_vararr* args = NULL);
+      function_var(lua_CFunction fn = NULL, const I_vararr* args = NULL);
       function_var(lua_State* state, int stack_idx);
       ~function_var();
 
@@ -526,7 +580,18 @@ namespace lua{
       const I_vararr* get_arg_closure() const override;
 
       lua_CFunction get_function() const override;
-      void set_function(lua_CFunction fn) override;
+      bool set_function(lua_CFunction fn) override;
+
+      bool is_cfunction() const override;
+
+      const void* get_lua_function() const override;
+
+      void clear_function() override;
+
+      void* get_lua_interface() const override;
+
+      lua::api::I_stack* get_lua_stack_api_definition() const override;
+      lua::api::I_value* get_lua_value_api_definition() const override;
   };
 
 

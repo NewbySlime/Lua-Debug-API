@@ -1,6 +1,6 @@
 # USER DATA
 
-MAIN_PROGRAM_FILE= TestSrc/test_object.cpp
+MAIN_PROGRAM_FILE= TestSrc/test_reffunc.cpp
 OUTPUT_FILE= main.exe
 
 DLL_OUTPUT_FILE= CPPAPI.dll

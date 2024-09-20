@@ -31,6 +31,16 @@ void lua::iterate_table(lua_State* state, int stack_idx, table_iter_callback cal
 }
 
 
+size_t lua::table_len(lua_State* state, int stack_idx){
+  size_t _result = 0;
+  iterate_table(state, stack_idx, [](lua_State* state, int key_idx, int value_idx, int iter_idx, void* _len){
+    (*(size_t*)_len)++;
+  }, &_result);
+
+  return _result;
+}
+
+
 // stack_idx, use bottom stack
 lua::variant* lua::get_table_value(lua_State* state, int stack_idx, const lua::variant* key){
   if(lua_type(state, stack_idx) != LUA_TTABLE)
@@ -64,6 +74,8 @@ void lua::set_table_value(lua_State* state, int stack_idx, const variant* key, c
 class _api_table_util_definition: public lua::api::I_table_util{
   public:
     void iterate_table(void* istate, int stack_idx, lua::table_iter_callback callback, void* cb_data) override{lua::iterate_table((lua_State*)istate, stack_idx, callback, cb_data);}
+
+    size_t table_len(void* istate, int stack_idx) override{return lua::table_len((lua_State*)istate, stack_idx);}
 
     lua::I_variant* get_table_value(void* istate, int stack_idx, const lua::I_variant* key) override{
       lua::variant* _key_var = cpplua_create_var_copy(key);

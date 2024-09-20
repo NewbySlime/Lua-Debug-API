@@ -26,7 +26,7 @@ namespace lua{
 
   class vararr: public I_vararr{
     private:
-      std::vector<lua::I_variant*> _data_arr;
+      std::vector<lua::variant*> _data_arr;
 
     public:
       vararr();

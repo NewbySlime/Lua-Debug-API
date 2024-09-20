@@ -8,9 +8,9 @@
 
 class stdlogger: public I_logger{
   public:
-    void print(std::string message) const override;
-    void print_warning(std::string message) const override;
-    void print_error(std::string message) const override;
+    void print(std::string message) const;
+    void print_warning(std::string message) const;
+    void print_error(std::string message) const;
 
     void print(const char* message) const override;
     void print_warning(const char* message) const override;

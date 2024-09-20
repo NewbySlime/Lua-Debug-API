@@ -49,7 +49,9 @@ namespace lua{
 #endif
 
       // can be NULL if no error from the start of the lua_State
-      virtual const lua::I_variant* get_last_error_object() = 0;
+      // can also be used for knowing if the object (runtime_handler) has any error when being created or not
+      virtual const lua::I_variant* get_last_error_object() const = 0;
+      virtual void reset_last_error() = 0;
   };
 
 
@@ -98,6 +100,7 @@ namespace lua{
 
       // get error object and pops the value from the stack
       void _read_error_obj();
+      void _set_error_obj(const I_variant* err_data = NULL);
       
       void _hookcb();
 
@@ -143,7 +146,8 @@ namespace lua{
       void remove_event_execution_finished(HANDLE event) override;
 #endif
 
-      const lua::I_variant* get_last_error_object() override;
+      const lua::I_variant* get_last_error_object() const override;
+      void reset_last_error() override;
 
       // NOTE: This will bind the logger to all tool membters in this object
       void set_logger(I_logger* logger) override;

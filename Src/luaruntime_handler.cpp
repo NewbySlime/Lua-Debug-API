@@ -25,7 +25,10 @@ runtime_handler::runtime_handler(lua_State* state){
 
   runtime_handler* _current_handler = get_attached_object(state);
   if(_current_handler){
-    _logger->print_error("[runtime_handler] Cannot intialize. Reason: lua_State already has runtime_handler.\n");
+    string_var _vstr = "[runtime_handler] Cannot intialize. Reason: lua_State already has runtime_handler.\n";
+    _logger->print_error(_vstr.get_string());
+    _set_error_obj(&_vstr);
+
     return;
   }
 
@@ -46,7 +49,9 @@ runtime_handler::runtime_handler(const std::string& lua_path, bool immediate_run
   _initiate_constructor();
   int _err_code;
   if((_err_code = load_file(lua_path.c_str())) != LUA_OK && _logger){
-    _logger->print_error(format_str("[runtime_handler] Cannot load file '%s'. Error Code: %d\n", lua_path.c_str(), _err_code));
+    string_var _vstr = format_str("[runtime_handler] Cannot load file '%s'. Error Code: %d\n", lua_path.c_str(), _err_code);
+    _logger->print_error(_vstr.get_string());
+    _set_error_obj(&_vstr);
   }
 
   if(load_library)
@@ -54,7 +59,9 @@ runtime_handler::runtime_handler(const std::string& lua_path, bool immediate_run
 
   if(immediate_run && _err_code == LUA_OK){
     if((_err_code = run_current_file()) != LUA_OK && _logger){
-      _logger->print_error(format_str("[runtime_handler] Something went wrong when running lua file '%s'. Error Code: %d\n", lua_path.c_str(), _err_code));
+      string_var _vstr = format_str("[runtime_handler] Something went wrong when running lua file '%s'. Error Code: %d\n", lua_path.c_str(), _err_code);
+      _logger->print_error(_vstr.get_string());
+      _set_error_obj(&_vstr);
     }
   }
 
@@ -143,6 +150,16 @@ void runtime_handler::_read_error_obj(){
 
   _last_err_obj = to_variant(_state, -1);
   lua_pop(_state, 1);
+}
+
+void runtime_handler::_set_error_obj(const I_variant* err_data){
+  if(_last_err_obj)
+    cpplua_delete_variant(_last_err_obj);
+  
+  if(err_data)
+    _last_err_obj = cpplua_create_var_copy(err_data);
+  else
+    _last_err_obj = NULL;
 }
 
 
@@ -351,8 +368,12 @@ void runtime_handler::remove_event_execution_finished(HANDLE event){
 #endif
 
 
-const lua::I_variant* runtime_handler::get_last_error_object(){
+const lua::I_variant* runtime_handler::get_last_error_object() const{
   return _last_err_obj;
+}
+
+void runtime_handler::reset_last_error(){
+  _set_error_obj();
 }
 
 
