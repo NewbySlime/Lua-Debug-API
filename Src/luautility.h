@@ -2,6 +2,7 @@
 #define LUAUTIL_HEADER
 
 #include "lua_includes.h"
+#include "luaapi_compilation_context.h"
 #include "luaapi_stack.h"
 #include "luaapi_value.h"
 
@@ -29,6 +30,18 @@ namespace lua::utility{
     }
 
     return _res;
+  }
+
+  
+  template<typename T_result, typename T_func, typename... T_args> T_result pstack_call_context(
+    void* istate,
+    int expected_offset_max,
+    int expected_offset_min,
+    const lua::api::compilation_context* context,
+    T_func fn,
+    T_args... args
+  ){
+    return pstack_call<T_result>(istate, expected_offset_max, expected_offset_min, context->api_stack, context->api_value, fn, args...);
   }
 }
 

@@ -39,6 +39,19 @@ void vararr::append_var(const I_variant* data){
 }
 
 
+void vararr::append(const I_vararr* arr){
+  _data_arr.reserve(arr->get_var_count());
+
+  for(int i = 0; i < arr->get_var_count(); i++)
+    append_var(arr->get_var(i));
+}
+
+void vararr::copy_from(const I_vararr* arr){
+  clear();
+  append(arr);
+}
+
+
 void vararr::clear(){
   for(auto var: _data_arr)
     cpplua_delete_variant(var);

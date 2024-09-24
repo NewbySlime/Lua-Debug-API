@@ -59,6 +59,7 @@ namespace lua::api{
       virtual size_t rawlen(void* istate, int idx) = 0;
       virtual void rawseti(void* istate, int idx, lua_Integer n) = 0;
       virtual void rawsetp(void* istate, int idx, const void* p) = 0;
+      virtual void lregister(void* istate, const char* name, lua_CFunction f) = 0;
       virtual void setfield(void* istate, int idx, const char* key) = 0;
       virtual void setglobal(void* istate, const char* name) = 0;
       virtual void seti(void* istate, int idx, lua_Integer n) = 0;

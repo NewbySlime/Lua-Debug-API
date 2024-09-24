@@ -1,0 +1,26 @@
+#ifndef LUAAPI_STATE_HEADER
+#define LUAAPI_STATE_HEADER
+
+#include "library_linking.h"
+#include "lua_includes.h"
+#include "macro_helper.h"
+
+
+namespace lua::api{
+  class I_state{
+    public:
+      virtual void close(void* istate) = 0;
+      virtual int load(void* istate, lua_Reader reader, void* data, const char* chunkname, const char* mode) = 0;
+      virtual void* newstate(lua_Alloc f, void* ud) = 0;
+  };
+}
+
+
+#define CPPLUA_GET_API_STATE_DEFINITION cpplua_get_api_state_definition
+#define CPPLUA_GET_API_STATE_DEFINITION_STR MACRO_TO_STR_EXP(CPPLUA_GET_API_STATE_DEFINITION)
+
+typedef lua::api::I_state* (__stdcall *get_api_state_func)();
+
+DLLEXPORT lua::api::I_state* CPPLUA_GET_API_STATE_DEFINITION();
+
+#endif

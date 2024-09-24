@@ -55,6 +55,10 @@ void _check_func(const I_vararr* args, I_vararr* res){
   res->append_var(_fvar);
 }
 
+void _modify_test_lua_func(){
+  
+}
+
 
 int main(){
   runtime_handler* _runtime = new runtime_handler("TestSrc/test_reffunc.lua", false);

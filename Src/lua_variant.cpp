@@ -28,6 +28,7 @@
 
 
 using namespace lua;
+using namespace lua::api;
 using namespace lua::utility;
 
 
@@ -693,6 +694,11 @@ table_var::table_var(lua_State* state, int stack_idx){
   from_state(state, stack_idx);
 }
 
+table_var::table_var(void* istate, int stack_idx, const compilation_context* context){
+  _init_class();
+  from_state(istate, stack_idx, context);
+}
+
 
 table_var::~table_var(){
   _clear_table_data();
@@ -1044,6 +1050,34 @@ bool table_var::_from_state_copy_by_interface(void* istate, int stack_idx){
   return true;
 }
 
+bool table_var::_from_state_ref_by_interface(void* istate, int stack_idx){
+  _clear_table_data();
+
+  int _type = _api_value->type(istate, stack_idx);
+  if(_type != get_type()){
+    _logger->print_error(format_str("Mismatched type when converting at stack (%d). (%s-%s)\n",
+      stack_idx,
+      _api_value->ttypename(istate, _type),
+      _api_value->ttypename(istate, get_type())
+    ).c_str());
+
+    return false;
+  }
+
+  _lua_state = istate;
+  _table_pointer = _api_value->topointer(istate, stack_idx);
+
+  if(_has_reference_metadata())
+    _increment_reference();
+  else{
+    _api_stack->pushvalue(istate, stack_idx);
+    _create_reference();
+    _api_stack->pop(istate, 1);
+  }
+
+  return true;
+}
+
 
 variant* table_var::_get_value_by_interface(const I_variant* key) const{
   if(!_table_pointer)
@@ -1267,38 +1301,23 @@ table_var* table_var::create_copy_static(const I_table_var* data){
 
 
 bool table_var::from_state(lua_State* state, int stack_idx){
-  _clear_table_data();
-
   _api_stack = cpplua_get_api_stack_definition();
   _api_value = cpplua_get_api_value_definition();
 
-  _api_var = cpplua_get_api_variant_util_definition();
   _api_table = cpplua_get_api_table_util_definition();
+  _api_var = cpplua_get_api_variant_util_definition();
 
-  int _type = lua_type(state, stack_idx);
-  if(_type != get_type()){
-    _logger->print_error(format_str("Mismatched type when converting at stack (%d). (%s-%s)\n",
-      stack_idx,
-      lua_typename(state, _type),
-      lua_typename(state, get_type())
-    ).c_str());
+  return _from_state_ref_by_interface(state, stack_idx);
+}
 
-    return false;
-  }
+bool table_var::from_state(void* istate, int stack_idx, const compilation_context* context){
+  _api_stack = context->api_stack;
+  _api_value = context->api_value;
 
+  _api_table = context->api_tableutil;
+  _api_var = context->api_varutil;
 
-  _lua_state = state;
-  _table_pointer = lua_topointer(state, stack_idx);
-
-  if(_has_reference_metadata())
-    _increment_reference();
-  else{
-    lua_pushvalue(state, stack_idx);
-    _create_reference();
-    lua_pop(state, 1);
-  }
-
-  return true;
+  return _from_state_ref_by_interface(istate, stack_idx);
 }
 
 bool table_var::from_state_copy(lua_State* state, int stack_idx){
@@ -1578,7 +1597,7 @@ bool lightuser_var::operator>=(const lightuser_var& var1) const{
 
 // MARK: function_var def
 
-function_var::function_var(lua_CFunction fn, const I_vararr* args){
+function_var::function_var(luaapi_cfunction fn, const I_vararr* args){
   _init_class();
 
   _this_fn = fn;
@@ -1787,6 +1806,17 @@ std::string function_var::_get_reference_key(const void* pointer){
 }
 
 
+int function_var::_cb_entry_point(lua_State* state){
+  if(lua_type(state, lua_upvalueindex(LUA_FUNCVAR_FUNCTION_UPVALUE)) != LUA_TLIGHTUSERDATA){
+    lua_pushstring(state, "[function_var] Upvalue for actual function is not a pointer to a function.");
+    lua_error(state);
+  }
+
+  luaapi_cfunction _actual_cb = (luaapi_cfunction)lua_touserdata(state, lua_upvalueindex(LUA_FUNCVAR_FUNCTION_UPVALUE));
+  return _actual_cb(state, cpplua_get_api_compilation_context());
+}
+
+
 int function_var::_compare_with(const variant* rhs) const{
   function_var* _rhs = (function_var*)rhs;
   if(_this_fn == _rhs->_this_fn)
@@ -1850,12 +1880,18 @@ bool function_var::from_state(lua_State* state, int stack_idx){
   }
   else{
     _init_cfunction();
-
-    _this_fn = lua_tocfunction(state, stack_idx);
     int _func_idx = stack_idx < 0? LUA_CONV_T2B(state, stack_idx): stack_idx; 
 
+    // Get actual function
+    if(lua_getupvalue(state, _func_idx, LUA_FUNCVAR_FUNCTION_UPVALUE)){
+      if(lua_type(state, -1) == LUA_TLIGHTUSERDATA)
+        _this_fn = (luaapi_cfunction)lua_touserdata(state, -1);
+
+      lua_pop(state, 1);
+    }
+
     _fn_args->clear();
-    int _idx = 1;
+    int _idx = LUA_FUNCVAR_START_UPVALUE;
     while(_idx <= LUAI_MAXSTACK){
       if(!lua_getupvalue(state, _func_idx, _idx))
         break;
@@ -1879,11 +1915,16 @@ void function_var::push_to_stack(lua_State* state) const{
       return;
     }
 
+    // push user function as upvalue
+    lua_pushlightuserdata(state, _this_fn);
+
+    // END OF LUA_FUNCVAR_START_UPVALUE
+
     // push the upvalues first
     for(int i = 0; i < _fn_args->get_var_count(); i++)
       _fn_args->get_self_var(i)->push_to_stack(state);
 
-    lua_pushcclosure(state, _this_fn, _fn_args->get_var_count());
+    lua_pushcclosure(state, _cb_entry_point, LUA_FUNCVAR_START_UPVALUE_IDX+_fn_args->get_var_count());
   }
   else
     _push_actual_function();
@@ -1915,11 +1956,11 @@ const I_vararr* function_var::get_arg_closure() const{
 }
 
 
-lua_CFunction function_var::get_function() const{
+function_var::luaapi_cfunction function_var::get_function() const{
   return _this_fn;
 }
 
-bool function_var::set_function(lua_CFunction fn){
+bool function_var::set_function(luaapi_cfunction fn){
   if(_luafunc_pointer)
     return false;
 

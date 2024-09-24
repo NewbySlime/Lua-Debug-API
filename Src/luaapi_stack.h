@@ -21,6 +21,7 @@ namespace lua::api{
       virtual void replace(void* istate, int idx) = 0;
       virtual void rotate(void* istate, int idx, int n) = 0;
       virtual void settop(void* istate, int idx) = 0;
+      virtual void xmove(void* ifrom, void* ito, int n) = 0;
   };
 }
 

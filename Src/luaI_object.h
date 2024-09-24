@@ -1,6 +1,8 @@
 #ifndef I_LUA_OBJECT_HEADER
 #define I_LUA_OBJECT_HEADER
 
+#include "luaapi_compilation_context.h"
+
 
 namespace lua{
   class I_vararr;
@@ -27,7 +29,7 @@ namespace lua{
       virtual I_debuggable_object* as_debug_object() = 0;
 
       // top most table is the object representation of the lua object
-      virtual void on_object_added(void* state_interface) = 0;
+      virtual void on_object_added(void* state_interface, const lua::api::compilation_context* context) = 0;
   };
 }
 

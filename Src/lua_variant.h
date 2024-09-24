@@ -4,6 +4,7 @@
 #include "I_logger.h"
 #include "library_linking.h"
 #include "lua_includes.h"
+#include "luaapi_compilation_context.h"
 #include "luaapi_stack.h"
 #include "luaapi_value.h"
 #include "luaI_object.h"
@@ -16,6 +17,11 @@
 
 #define LUA_TERROR 0x101
 #define LUA_TCPPOBJECT 0x102
+
+#define LUA_FUNCVAR_FUNCTION_UPVALUE 1
+
+#define LUA_FUNCVAR_START_UPVALUE_IDX 1
+#define LUA_FUNCVAR_START_UPVALUE (LUA_FUNCVAR_START_UPVALUE_IDX+1)
 
 
 // This code will be statically bind to the compilation file
@@ -366,11 +372,17 @@ namespace lua{
 
       // used for creating copy from lua_State
       static void _fs_iter_cb(lua_State* state, int key_stack, int val_stack, int iter_idx, void* cb_data);
-      // needed api interface for use:
+      // needed api interface to use:
       //  lua::api::I_table_util
       //  lua::api::I_value
       //  lua::api::I_variant_util
       bool _from_state_copy_by_interface(void* istate, int stack_idx);
+      // needed api interface to use:
+      //  lua::api::I_stack
+      //  lua::api::I_table_util
+      //  lua::api::I_value
+      //  lua::api::I_variant_util
+      bool _from_state_ref_by_interface(void* istate, int stack_idx);
 
       variant* _get_value_by_interface(const I_variant* key) const;
       void _set_value_by_interface(const I_variant* key, const I_variant* value);
@@ -393,6 +405,7 @@ namespace lua{
       table_var();
       table_var(const table_var& var);
       table_var(lua_State* state, int stack_idx);
+      table_var(void* istate, int stack_idx, const lua::api::compilation_context* context);
       ~table_var();
 
       int get_type() const override;
@@ -400,6 +413,7 @@ namespace lua{
       static table_var* create_copy_static(const I_table_var* data);
 
       bool from_state(lua_State* state, int stack_idx) override;
+      bool from_state(void* istate, int stack_idx, const compilation_context* context);
       bool from_state_copy(lua_State* state, int stack_idx);
 
       void push_to_stack(lua_State* state) const override;
@@ -489,6 +503,8 @@ namespace lua{
   
   class I_function_var: virtual public I_variant{
     public:
+      typedef int (*luaapi_cfunction)(void* istate, const lua::api::compilation_context* compilation_context);
+
       constexpr static int get_static_lua_type(){return LUA_TFUNCTION;}
 
       // Might be NULL if the object is filled with Lua function
@@ -497,10 +513,10 @@ namespace lua{
       virtual const I_vararr* get_arg_closure() const = 0;
 
       // Might be NULL if it is Lua function
-      virtual lua_CFunction get_function() const = 0;
+      virtual luaapi_cfunction get_function() const = 0;
       // Cannot be set if the object is filled with Lua function
       // Try create a new object or use clear_function()
-      virtual bool set_function(lua_CFunction fn) = 0;
+      virtual bool set_function(luaapi_cfunction fn) = 0;
 
       virtual bool is_cfunction() const = 0;
 
@@ -516,9 +532,10 @@ namespace lua{
   };
 
   // NOTE: for now, only cfunction that can be stored
+  // ANOTHER NOTE: any function called via function_var can use upvalues but only after LUA_FUNCVAR_START_UPVALUE
   class function_var: public I_function_var, public variant{
     private:
-      lua_CFunction _this_fn = NULL;
+      luaapi_cfunction _this_fn = NULL;
       vararr* _fn_args = NULL;
 
       void* _lua_state;
@@ -554,13 +571,15 @@ namespace lua{
       bool _has_reference_metadata();
 
       static std::string _get_reference_key(const void* pointer);
+      
+      static int _cb_entry_point(lua_State* state);
 
     protected:
       // compared results are based on the function pointer
       int _compare_with(const variant* rhs) const override;
 
     public:
-      function_var(lua_CFunction fn = NULL, const I_vararr* args = NULL);
+      function_var(luaapi_cfunction fn = NULL, const I_vararr* args = NULL);
       function_var(lua_State* state, int stack_idx);
       ~function_var();
 
@@ -579,8 +598,9 @@ namespace lua{
       I_vararr* get_arg_closure() override;
       const I_vararr* get_arg_closure() const override;
 
-      lua_CFunction get_function() const override;
-      bool set_function(lua_CFunction fn) override;
+      luaapi_cfunction get_function() const override;
+      // NOTE: any function called via function_var can use upvalues but only after LUA_FUNCVAR_START_UPVALUE
+      bool set_function(luaapi_cfunction fn) override;
 
       bool is_cfunction() const override;
 

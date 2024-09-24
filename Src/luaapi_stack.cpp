@@ -15,7 +15,8 @@ class _api_stack_function: public I_stack{
     void remove(void* istate, int idx) override{lua_remove((lua_State*)istate, idx);}
     void replace(void* istate, int idx) override{lua_replace((lua_State*)istate, idx);}
     void rotate(void* istate, int idx, int n) override{lua_rotate((lua_State*)istate, idx, n);}
-    void settop(void* istate, int idx) override{lua_settop((lua_State*)istate, idx);} 
+    void settop(void* istate, int idx) override{lua_settop((lua_State*)istate, idx);}
+    void xmove(void* ifrom, void* ito, int n) override{lua_xmove((lua_State*)ifrom, (lua_State*)ito, n);} 
 };
 
 

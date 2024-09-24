@@ -1,4 +1,6 @@
 local f = io.open("test.txt", "a+")
 
-print(f:read(5))
+f:seek("set")
+f:write("hello!")
+print(f:read(6))
 f:close()
