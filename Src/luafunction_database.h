@@ -2,12 +2,11 @@
 #define LUAFUNCTION_DATABASE_HEADER
 
 #include "I_debug_user.h"
-#include "lua_includes.h"
-#include "lua_str.h"
-#include "lua_vararr.h"
-#include "lua_variant.h"
+#include "luaincludes.h"
+#include "luavariant_arr.h"
+#include "luavariant.h"
 #include "luadebug_hookhandler.h"
-#include "strutil.h"
+#include "string_util.h"
 
 #include "map"
 #include "set"
@@ -30,8 +29,11 @@ namespace lua{
 
       virtual bool expose_c_function_nonstrict(const char* function_name, function_cb cb) = 0;
 
-      virtual bool call_lua_function_nonstrict(const char* function_name, const I_vararr* args, I_vararr* results) = 0;
+      virtual bool call_lua_function_nonstrict(const char* function_name, const lua::I_vararr* args, lua::I_vararr* results) = 0;
   };
+
+
+#ifdef LUA_CODE_EXISTS
 
   // NOTE: lua_State shouldn't be destroyed in this class' lifetime
   class func_db: public I_func_db{
@@ -251,6 +253,8 @@ namespace lua{
         return new lua::variant();}
       }
   };
+#endif // LUA_CODE_EXISTS
+
 }
 
 #endif

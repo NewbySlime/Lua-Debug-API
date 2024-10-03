@@ -2,7 +2,7 @@
 #define LUAAPI_STATE_HEADER
 
 #include "library_linking.h"
-#include "lua_includes.h"
+#include "luaincludes.h"
 #include "macro_helper.h"
 
 
@@ -21,6 +21,8 @@ namespace lua::api{
 
 typedef lua::api::I_state* (__stdcall *get_api_state_func)();
 
+#ifdef LUA_CODE_EXISTS
 DLLEXPORT lua::api::I_state* CPPLUA_GET_API_STATE_DEFINITION();
+#endif // LUA_CODE_EXISTS
 
 #endif

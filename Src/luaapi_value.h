@@ -1,7 +1,7 @@
 #ifndef LUAAPI_VALUE_HEADER
 #define LUAAPI_VALUE_HEADER
 
-#include "lua_includes.h"
+#include "luaincludes.h"
 #include "library_linking.h"
 #include "macro_helper.h"
 
@@ -88,6 +88,8 @@ namespace lua::api{
 
 typedef lua::api::I_value* (__stdcall *get_api_value_func)();
 
+#ifdef LUA_CODE_EXISTS
 DLLEXPORT lua::api::I_value* CPPLUA_GET_API_VALUE_DEFINITION();
+#endif // LUA_CODE_EXISTS
 
 #endif

@@ -1,10 +1,12 @@
 #include "dllutil.h"
 #include "error_util.h"
-#include "lua_vararr.h"
+#include "luavariant_arr.h"
+#include "luaapi_util.h"
 #include "lualib_io_handler.h"
+#include "luaobject_util.h"
 #include "luautility.h"
 #include "misc.h"
-#include "strutil.h"
+#include "string_util.h"
 
 #include "chrono"
 
@@ -25,26 +27,12 @@ using namespace lua::object;
 using namespace lua::utility;
 
 
+#ifdef LUA_CODE_EXISTS
 
-
-// MARK: file_handler definition
+// MARK: Library DLL variables
 
 static std::map<std::string, file_handler::seek_opt>* _seek_keyword_parser = NULL;
 static std::map<std::string, file_handler::buffering_mode>* _buffering_keyword_parser = NULL;
-
-static const fdata _file_handler_fdata[] = {
-  fdata("close", file_handler::close),
-  fdata("flush", file_handler::flush),
-  fdata("lines", file_handler::lines),
-  fdata("read", file_handler::read),
-  fdata("seek", file_handler::seek),
-  fdata("setvbuf", file_handler::setvbuf),
-  fdata("write", file_handler::write),
-  fdata(NULL, NULL)
-};
-
-
-// MARK: file_handler DLL deinit
 
 void _deinitialize_file_handler_static_vars();
 destructor_helper _dh_file_handler(_deinitialize_file_handler_static_vars);
@@ -78,6 +66,165 @@ static void _deinitialize_file_handler_static_vars(){
     _buffering_keyword_parser = NULL;
   }
 }
+
+
+
+
+// MARK: io_handler definition
+
+static const fdata _io_handler_fdata[] = {
+  fdata("close", io_handler::close),
+  fdata("flush", io_handler::flush),
+  fdata("input", io_handler::input),
+  fdata("lines", io_handler::lines),
+  fdata("open", io_handler::open),
+  fdata("output", io_handler::output),
+  fdata("popen", io_handler::popen),
+  fdata("read", io_handler::read),
+  fdata("tmpfile", io_handler::tmpfile),
+  fdata("type", io_handler::type),
+  fdata("write", io_handler::write),
+  fdata(NULL, NULL) // array closing
+};
+
+
+static void _def_iohandler_destructor(I_object* obj){
+  delete obj;
+}
+
+io_handler::io_handler(void* istate, const compilation_context* c, const constructor_param* param): function_store(_def_iohandler_destructor){
+  set_function_data(_io_handler_fdata);
+
+  file_handler* _stdout = NULL;
+  file_handler* _stdin = NULL;
+  file_handler* _stderr = NULL;
+  if(param){
+    _stdout = param->stdout_file;
+    _stdin = param->stdin_file;
+    _stderr = param->stderr_file;
+  }
+
+#if (_WIN64) || (_WIN32)
+  if(!_stdout)
+    _stdout = new file_handler(istate, c, GetStdHandle(STD_OUTPUT_HANDLE), true);
+
+  if(!_stdin)
+    _stdin = new file_handler(istate, c, GetStdHandle(STD_INPUT_HANDLE), false);
+
+  if(!_stderr)
+    _stderr = new file_handler(istate, c, GetStdHandle(STD_ERROR_HANDLE), true);
+#endif
+
+  _stdout_object = as_lua_table_var(istate, c, _stdout);
+  _stdin_object = as_lua_table_var(istate, c, _stdin);
+  _stderr_object = as_lua_table_var(istate, c, _stderr);
+
+  _fileout_def = _stdout;
+  _filein_def = _stdin;
+  _fileerr_def = _stderr;
+}
+
+io_handler::~io_handler(){
+  delete _stdout_object;
+  delete _stdin_object;
+  delete _stderr_object;
+}
+
+
+void io_handler::close(I_object* obj, const I_vararr* args, I_vararr* res){
+  io_handler* _this = dynamic_cast<io_handler*>(obj);
+  _this->_clear_error();
+
+  _this->close();
+
+  if(_this->get_last_error())
+    _this->_fill_error_with_last(res);
+}
+
+void io_handler::flush(I_object* obj, const I_vararr* args, I_vararr* res){
+  io_handler* _this = dynamic_cast<io_handler*>(obj);
+  _this->_clear_error();
+
+  _this->flush();
+
+  if(_this->get_last_error())
+    _this->_fill_error_with_last(res);
+}
+
+void io_handler::input(I_object* obj, const I_vararr* args, I_vararr* res){
+  io_handler* _this = dynamic_cast<io_handler*>(obj);
+  const compilation_context* c = _this->_current_context;
+  _this->_clear_error();
+
+{ // enclosure for using goto
+  
+  // Getting arguments
+  file_handler* _file_arg;
+  {const I_variant* _check_var;
+    if(args->get_var_count() < 1){ // push default input file when argument is empty
+      object_var _obj = _this->_filein_def;
+      res->append_var(&_obj);
+      return;
+    }
+
+    _check_var = args->get_var(0);
+    switch(_check_var->get_type()){
+      break; case I_table_var::get_static_lua_type():{
+        c->api_varutil->push_variant(_this->_lua_state, _check_var);
+        _file_arg = file_handler::parse_lua_object(_this->_lua_state, c, -1);
+        c->api_stack->pop(_this->_lua_state, 1);
+      }
+
+      break; case I_string_var::get_static_lua_type():{
+        const I_string_var* _strvar = dynamic_cast<const I_string_var*>(_check_var);
+        file_handler* _tmp_obj = new file_handler(_this->_lua_state, c, _strvar->get_string(), file_handler::open_read);
+        if(_tmp_obj->get_last_error()){
+          _this->_copy_error_from(_tmp_obj);
+          delete _tmp_obj;
+
+          goto on_error;
+        }
+
+        _file_arg = _tmp_obj;
+      }
+    }
+
+    if(!_file_arg){
+      _this->_set_last_error(ERROR_BAD_ARGUMENTS, "Argument #1: Not a file handle.");
+      goto on_error;
+    }
+  }
+
+  _this->_filein_def = _file_arg;
+
+} // enclosure closing
+
+  return;
+
+
+  // ERROR GOTOs
+
+  on_error:{
+    res->clear();
+    _this->_fill_error_with_last(res);
+  }
+}
+
+
+
+
+// MARK: file_handler definition
+
+static const fdata _file_handler_fdata[] = {
+  fdata("close", file_handler::close),
+  fdata("flush", file_handler::flush),
+  fdata("lines", file_handler::lines),
+  fdata("read", file_handler::read),
+  fdata("seek", file_handler::seek),
+  fdata("setvbuf", file_handler::setvbuf),
+  fdata("write", file_handler::write),
+  fdata(NULL, NULL) // array closing
+};
 
 
 static void _def_fhandler_destructor(I_object* obj){
@@ -150,7 +297,10 @@ file_handler::file_handler(void* istate, const compilation_context* context, con
     _minimal_write_offset = GetFileSize(_file, NULL);
 
   _op_code = op;
+
   _hfile = _file;
+  _is_pipe_handle = false;
+  _own_handle = true;
 #endif
 
   _object_metadata = _create_metadata(istate, context, this);
@@ -280,7 +430,7 @@ int file_handler::_read_str(char* buffer, size_t buflen, bool(*filter_cb)(char c
 
   if(already_closed()){
     _set_last_error(ERROR_HANDLES_CLOSED, "File already closed.");
-    return;
+    return -1;
   }
 
   if(!can_read()){
@@ -329,6 +479,9 @@ int file_handler::_read_str(char* buffer, size_t buflen, bool(*filter_cb)(char c
 
 
 void file_handler::_check_write_pos(){
+  if(_is_pipe_handle) 
+    return;
+
   long _current_pos = seek(seek_current, 0);
   if(_current_pos < _minimal_write_offset)
     seek(seek_begin, _minimal_write_offset);
@@ -381,7 +534,7 @@ table_var* file_handler::_create_metadata(void* istate, const compilation_contex
 void file_handler::_delete_metadata(void* istate, const compilation_context* c, file_handler* obj){
   // since reference table is just set nil in the global table, pointer in the reference table should also set to nil
   
-  pstack_call<void>(istate, 0, 0, c->api_stack, c->api_value, [](void* istate, const compilation_context* c, file_handler* obj){
+  pstack_call_void(istate, 0, 0, c->api_stack, c->api_value, [](void* istate, const compilation_context* c, file_handler* obj){
     _require_global_table(istate, c);
 
     // get metadata table
@@ -412,7 +565,7 @@ std::string file_handler::_get_pointer_str(const void* pointer){
 
 
 file_handler* file_handler::_get_file_handler(void* istate, const compilation_context* c){
-  return pstack_call<file_handler*>(istate, 0, 0, c->api_stack, c->api_value, [](void* istate, const compilation_context* c, file_handler* obj){
+  return pstack_call<file_handler*>(istate, 0, 0, c->api_stack, c->api_value, [](void* istate, const compilation_context* c){
     if(c->api_value->type(istate, -1) != LUA_TTABLE)
       return (file_handler*)NULL;
 
@@ -457,6 +610,8 @@ int file_handler::_lua_line_cb(void* istate, const compilation_context* c){
 
     (*_parg_count) = c->api_value->tointeger(istate, -1);
     c->api_stack->pop(istate, 1); // pop arg count
+
+    return (error_var*)NULL;
   }, istate, c, &_this, &_arg_count);
 
   if(_err){
@@ -517,6 +672,8 @@ void file_handler::flush(I_object* obj, const I_vararr* args, I_vararr* res){
 void file_handler::lines(I_object* obj, const I_vararr* args, I_vararr* res){
   // don't store I_object pointer directly, if possible, use reference object like tables
   file_handler* _this = dynamic_cast<file_handler*>(obj);
+  _this->_clear_error();
+
   if(_this->already_closed()){
     _this->_set_last_error(ERROR_HANDLES_CLOSED, "File already closed.");
     res->append_var(_this->get_last_error());
@@ -549,8 +706,11 @@ void file_handler::read(I_object* obj, const I_vararr* args, I_vararr* res){
   // L: read a line, with the newline character
   // (number): read a number of bytes
   file_handler* _this = dynamic_cast<file_handler*>(obj);
-
   _this->_clear_error();
+
+  // returns nothing when eof
+  if(_this->end_of_file_reached())
+    return;
 
   for(int i = 0; i < args->get_var_count(); i++){
     if(_this->end_of_file_reached())
@@ -671,6 +831,7 @@ void file_handler::read(I_object* obj, const I_vararr* args, I_vararr* res){
 
 void file_handler::seek(I_object* obj, const I_vararr* args, I_vararr* res){
   file_handler* _this = dynamic_cast<file_handler*>(obj);
+  _this->_clear_error();
 
   if(_this->already_closed()){
     _this->_set_last_error(ERROR_HANDLES_CLOSED, "File already closed.");
@@ -743,6 +904,7 @@ void file_handler::seek(I_object* obj, const I_vararr* args, I_vararr* res){
 
 void file_handler::setvbuf(I_object* obj, const I_vararr* args, I_vararr* res){
   file_handler* _this = dynamic_cast<file_handler*>(obj);
+  _this->_clear_error();
 
   if(_this->already_closed()){
     _this->_set_last_error(ERROR_HANDLES_CLOSED, "File already closed.");
@@ -794,6 +956,7 @@ void file_handler::setvbuf(I_object* obj, const I_vararr* args, I_vararr* res){
 
 void file_handler::write(I_object* obj, const I_vararr* args, I_vararr* res){
   file_handler* _this = dynamic_cast<file_handler*>(obj);
+  _this->_clear_error();
   
 {// enclosure for using gotos
   _this->_clear_error();
@@ -832,6 +995,8 @@ void file_handler::write(I_object* obj, const I_vararr* args, I_vararr* res){
 
 
 bool file_handler::close(){
+  _clear_error();
+
 #if (_WIN64) || (_WIN32)
   if(!_hfile){
     _set_last_error(ERROR_HANDLES_CLOSED, "File already closed.");
@@ -852,6 +1017,8 @@ bool file_handler::close(){
 }
 
 bool file_handler::flush(){
+  _clear_error();
+
 #if (_WIN64) || (_WIN32)
   if(!_hfile){ 
     _set_last_error(ERROR_HANDLES_CLOSED, "File already closed.");
@@ -865,6 +1032,7 @@ bool file_handler::flush(){
 }
 
 char file_handler::peek(){
+  _clear_error();
   char _tmpc;
 
   if(end_of_file_reached())
@@ -890,6 +1058,7 @@ char file_handler::peek(){
 }
 
 long file_handler::seek(seek_opt opt, long offset){
+  _clear_error();
   long _result = -1;
 
   if(_is_pipe_handle)
@@ -950,6 +1119,7 @@ long file_handler::seek(seek_opt opt, long offset){
 }
 
 size_t file_handler::read(char* buffer, size_t buffer_size){
+  _clear_error();
   return _read_str(buffer,  buffer_size);
 }
 
@@ -1007,6 +1177,7 @@ size_t file_handler::write(const char* buffer, size_t buffer_size){
 }
 
 void file_handler::set_buffering_mode(buffering_mode mode){
+  _clear_error();
   _buffering_mode = mode;
 }
 
@@ -1052,3 +1223,5 @@ void file_handler::on_object_added(void* istate, const lua::api::compilation_con
   _object_table = new table_var(istate, -1, c);
   _object_metadata->set_value((I_variant*)&_keystr, (I_variant*)_object_table); // directly casting to not make the compiler upset
 }
+
+#endif // LUA_CODE_EXISTS

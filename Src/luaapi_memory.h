@@ -2,7 +2,7 @@
 #define LUAAPI_MEMORY_HEADER
 
 #include "library_linking.h"
-#include "lua_includes.h"
+#include "luaincludes.h"
 #include "macro_helper.h"
 
 
@@ -22,6 +22,8 @@ namespace lua::api{
 
 typedef lua::api::I_memory* (__stdcall *get_api_memory_func)();
 
+#ifdef LUA_CODE_EXISTS
 DLLEXPORT lua::api::I_memory* CPPLUA_GET_API_MEMORY_DEFINITION();
+#endif // LUA_CODE_EXISTS
 
 #endif

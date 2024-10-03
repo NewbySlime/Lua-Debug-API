@@ -3,6 +3,8 @@
 using namespace lua::api;
 
 
+#ifdef LUA_CODE_EXISTS
+
 class _api_util_function: public I_util{
   public:
     int absindex(void* istate, int idx) override{return lua_absindex((lua_State*)istate, idx);}
@@ -18,3 +20,5 @@ static _api_util_function __api_def;
 DLLEXPORT lua::api::I_util* CPPLUA_GET_API_UTIL_DEFINITION(){
   return &__api_def;
 }
+
+#endif // LUA_CODE_EXISTS

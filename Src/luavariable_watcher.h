@@ -2,8 +2,8 @@
 #define LUAVARIANT_WATCHER_HEADER
 
 #include "I_debug_user.h"
-#include "lua_includes.h"
-#include "lua_variant.h"
+#include "luaincludes.h"
+#include "luavariant.h"
 #include "macro_helper.h"
 
 #include "set"
@@ -29,6 +29,9 @@ namespace lua::debug{
       virtual int get_variable_type(int idx) const = 0;
       virtual int get_variable_type(const char* var_name) const = 0;
   };
+
+
+#ifdef LUA_CODE_EXISTS
 
   class variable_watcher: public I_variable_watcher, public I_debug_user{
     private:
@@ -77,6 +80,9 @@ namespace lua::debug{
 
       void set_logger(I_logger* logger);
   };
+
+#endif // LUA_CODE_EXISTS
+
 }
 
 
@@ -86,7 +92,12 @@ namespace lua::debug{
 #define CPPLUA_DELETE_VARIABLE_WATCHER cpplua_delete_variable_watcher
 #define CPPLUA_DELETE_VARIABLE_WATCHER_STR MACRO_TO_STR_EXP(CPPLUA_DELETE_VARIABLE_WATCHER)
 
-typedef lua::debug::I_variable_watcher* (__stdcall *vw_create_func)(void* interface_state);
+typedef lua::debug::I_variable_watcher* (__stdcall *vw_create_func)(void* istate);
 typedef void (__stdcall *vw_delete_func)(lua::debug::I_variable_watcher* watcher);
+
+#ifdef LUA_CODE_EXISTS
+DLLEXPORT lua::debug::I_variable_watcher* CPPLUA_CREATE_VARIABLE_WATCHER(void* istate);
+DLLEXPORT void CPPLUA_DELETE_VARIABLE_WATCHER(lua::debug::I_variable_watcher* watcher);
+#endif // LUA_CODE_EXISTS
 
 #endif

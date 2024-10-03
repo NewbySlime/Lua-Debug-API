@@ -1,4 +1,5 @@
-#include "lua_variant.h"
+#include "luavariant.h"
+#include "luavariant_util.h"
 #include "luaruntime_handler.h"
 #include "stdlogger.h"
 
@@ -10,6 +11,7 @@ using namespace lua;
 using namespace lua::debug;
 
 
+#ifdef LUA_CODE_EXISTS
 
 // MARK: lua::runtime_handler
 
@@ -140,7 +142,7 @@ void runtime_handler::_initiate_class(){
 
   _function_database = new func_db(_state);
 
-  _library_loader = new lib_loader(_state);
+  _library_loader = new library_loader(_state);
 }
 
 
@@ -180,7 +182,7 @@ void runtime_handler::_hookcb(){
 
 void runtime_handler::_set_bind_obj(runtime_handler* obj, lua_State* state){
   lightuser_var _lud_var = obj;
-  _lud_var.setglobal(state, LUD_RUNTIME_HANDLER_VAR_NAME);
+  set_global(state, LUD_RUNTIME_HANDLER_VAR_NAME, &_lud_var);
 }
 
 
@@ -220,7 +222,7 @@ execution_flow* runtime_handler::get_execution_flow(){
   return _execution_flow;
 }
 
-lib_loader* runtime_handler::get_library_loader(){
+library_loader* runtime_handler::get_library_loader(){
   return _library_loader;
 }
 
@@ -237,7 +239,7 @@ I_execution_flow* runtime_handler::get_execution_flow_interface(){
   return _execution_flow;
 }
 
-I_lib_loader* runtime_handler::get_library_loader_interface(){
+I_library_loader* runtime_handler::get_library_loader_interface(){
   return _library_loader;
 }
 
@@ -400,3 +402,5 @@ DLLEXPORT lua::I_runtime_handler* CPPLUA_CREATE_RUNTIME_HANDLER(const char* lua_
 DLLEXPORT void CPPLUA_DELETE_RUNTIME_HANDLER(I_runtime_handler* handler){
   delete handler;
 }
+
+#endif // LUA_CODE_EXISTS

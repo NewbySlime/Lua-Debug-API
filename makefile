@@ -8,7 +8,6 @@ STATIC_DLIB_OUTPUT_FILE = CPPAPI_static.lib
 
 CLUA_SOURCE_FOLDER= LuaSrc/*.c
 CPPLIB_SOURCE_FOLDER= Src/*.cpp
-CPPLIB_SOURCE_STATIC_DLIB_SCRIPTS= Src/luobject_helper.cpp Src/lua_vararr.cpp Src/lua_variant.cpp Src/string_store.cpp Src/stdlogger.cpp Src/luatable_util.cpp
 
 # END OF USER DATA
 
@@ -44,6 +43,9 @@ MSVC_COMBINING_OUTPUT_TARGET_OPTIONS= /OUT:
 COMPILE_OPTION=
 MINGW_COMPILE_OPTIONS= -c -std=c++17
 MSVC_COMPILE_OPTIONS= /c /std:c++17 /EHsc /TP
+
+COMPILE_DLL_OPTION= -DLUA_CODE_EXISTS
+
 
 LINK_OPTION=
 MINGW_LINK_OPTIONS=
@@ -154,8 +156,9 @@ endef
 
 # MARK: Fn compile_script
 # Arg 1: Script to compile
+# Arg 2: Additional option
 define compile_script
-	$(COMPILE_COMMAND) $(COMPILE_OPTION) $(1) $(DEBUG_COMPILE_OPTION)
+	$(COMPILE_COMMAND) $(COMPILE_OPTION) $(1) $(DEBUG_COMPILE_OPTION) $(2)
 endef
 
 
@@ -200,7 +203,7 @@ f_as_debug:
 
 define _compile_static_dlibs
 $(if $(call cmp_str,$(AS_DLL),TRUE),
-	$(call compile_script,$(CPPLIB_SOURCE_STATIC_DLIB_SCRIPTS))
+	$(call compile_script,$(CPPLIB_SOURCE_FOLDER))
 	$(call combine_compilation,*$(COMPILED_OBJECT_EXT),$(STATIC_DLIB_OUTPUT_FILE))
 )
 endef
@@ -215,9 +218,9 @@ endef
 proc_compile: _f_update_compiler
 	$(call delete_objects,*$(COMPILED_OBJECT_EXT))
 
-	$(call compile_script,$(CLUA_SOURCE_FOLDER))
 	$(call _compile_static_dlibs)
-	$(call compile_script,$(CPPLIB_SOURCE_FOLDER))
+	$(call compile_script,$(CLUA_SOURCE_FOLDER))
+	$(call compile_script,$(CPPLIB_SOURCE_FOLDER),$(COMPILE_DLL_OPTION))
 	$(call _compile_main_program)
 
 	$(eval _OUTPUT_FILE=$(if $(call cmp_str,$(AS_DLL),TRUE),$(DLL_OUTPUT_FILE),$(OUTPUT_FILE)))

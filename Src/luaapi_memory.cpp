@@ -3,6 +3,8 @@
 using namespace lua::api;
 
 
+#ifdef LUA_CODE_EXISTS
+
 class _api_memory_function: public I_memory{
   public:
     int gc(void* istate, int what, int data) override{return lua_gc((lua_State*)istate, what, data);}
@@ -17,3 +19,5 @@ static _api_memory_function __api_def;
 DLLEXPORT lua::api::I_memory* CPPLUA_GET_API_MEMORY_DEFINITION(){
   return &__api_def;
 }
+
+#endif // LUA_CODE_EXISTS

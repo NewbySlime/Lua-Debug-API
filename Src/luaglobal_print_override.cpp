@@ -1,8 +1,8 @@
-#include "lua_str.h"
-#include "lua_variant.h"
+#include "luavariant.h"
+#include "luavariant_util.h"
 #include "luaglobal_print_override.h"
 #include "stdlogger.h"
-#include "strutil.h"
+#include "string_util.h"
 
 #define LUD_PRINT_OVERRIDE_VAR_NAME "__clua_print_override"
 
@@ -14,6 +14,8 @@
 using namespace lua;
 using namespace lua::global;
 
+
+#ifdef LUA_CODE_EXISTS
 
 // MARK: lua::global::print_override
 
@@ -69,7 +71,7 @@ void print_override::_bind_global_function(){
 
 void print_override::_set_bind_obj(print_override* obj, lua_State* state){
   lightuser_var _lud_var = obj;
-  _lud_var.setglobal(state, LUD_PRINT_OVERRIDE_VAR_NAME);
+  set_global(state, LUD_PRINT_OVERRIDE_VAR_NAME, &_lud_var);
 }
 
 int print_override::_on_print_static(lua_State* state){
@@ -323,3 +325,5 @@ DLLEXPORT lua::global::I_print_override* CPPLUA_CREATE_GLOBAL_PRINT_OVERRIDE(voi
 DLLEXPORT void CPPLUA_DELETE_GLOBAL_PRINT_OVERRIDE(lua::global::I_print_override* obj){
   delete obj;
 }
+
+#endif // LUA_CODE_EXISTS

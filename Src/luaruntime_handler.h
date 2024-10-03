@@ -3,11 +3,11 @@
 
 #include "I_debug_user.h"
 #include "I_logger.h"
-#include "lua_includes.h"
+#include "luaincludes.h"
 #include "luadebug_hookhandler.h"
 #include "luadebug_executionflow.h"
 #include "luafunction_database.h"
-#include "lualib_loader.h"
+#include "lualibrary_loader.h"
 #include "library_linking.h"
 #include "macro_helper.h"
 
@@ -31,7 +31,7 @@ namespace lua{
       virtual lua::I_func_db* get_function_database_interface() = 0;
       virtual lua::debug::I_hook_handler* get_hook_handler_interface() = 0;
       virtual lua::debug::I_execution_flow* get_execution_flow_interface() = 0;
-      virtual lua::I_lib_loader* get_library_loader_interface() = 0;
+      virtual lua::I_library_loader* get_library_loader_interface() = 0;
 
       virtual void stop_execution() = 0;
       virtual bool run_execution(execution_context cb, void* cbdata) = 0;
@@ -54,6 +54,8 @@ namespace lua{
       virtual void reset_last_error() = 0;
   };
 
+
+#ifdef LUA_CODE_EXISTS
 
   // NOTE: lua_State shouldn't be destroyed in this class' lifetime
   class runtime_handler: public I_runtime_handler{
@@ -90,7 +92,7 @@ namespace lua{
 
       lua::func_db* _function_database = NULL;
 
-      lua::lib_loader* _library_loader = NULL;
+      lua::library_loader* _library_loader = NULL;
 
       lua::variant* _last_err_obj = NULL;
 
@@ -124,12 +126,12 @@ namespace lua{
       lua::func_db* get_function_database();
       lua::debug::hook_handler* get_hook_handler();
       lua::debug::execution_flow* get_execution_flow();
-      lua::lib_loader* get_library_loader();
+      lua::library_loader* get_library_loader();
 
       lua::I_func_db* get_function_database_interface() override;
       lua::debug::I_hook_handler* get_hook_handler_interface() override;
       lua::debug::I_execution_flow* get_execution_flow_interface() override;
-      lua::I_lib_loader* get_library_loader_interface() override;
+      lua::I_library_loader* get_library_loader_interface() override;
 
       void stop_execution() override;
       bool run_execution(execution_context cb, void* cbdata) override;
@@ -152,6 +154,9 @@ namespace lua{
       // NOTE: This will bind the logger to all tool membters in this object
       void set_logger(I_logger* logger) override;
   };
+
+#endif // LUA_CODE_EXISTS
+
 }
 
 
@@ -164,5 +169,10 @@ namespace lua{
 // if lua_path is NULL, then the runtime_handler should only create empty lua_State
 typedef lua::I_runtime_handler* (__stdcall *rh_create_func)(const char* lua_path, bool immediate_run, bool load_library);
 typedef void (__stdcall *rh_delete_func)(lua::I_runtime_handler* handler);
+
+#ifdef LUA_CODE_EXISTS
+DLLEXPORT lua::I_runtime_handler* CPPLUA_CREATE_RUNTIME_HANDLER(const char* lua_path, bool immediate_run, bool load_library);
+DLLEXPORT void CPPLUA_DELETE_RUNTIME_HANDLER(lua::I_runtime_handler* handler);
+#endif // LUA_CODE_EXISTS
 
 #endif

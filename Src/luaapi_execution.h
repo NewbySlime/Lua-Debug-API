@@ -2,7 +2,7 @@
 #define LUAAPI_EXECUTION_HEADER
 
 #include "library_linking.h"
-#include "lua_includes.h"
+#include "luaincludes.h"
 #include "macro_helper.h"
 
 
@@ -26,6 +26,8 @@ namespace lua::api{
 
 typedef lua::api::I_execution* (__stdcall *get_api_execution_func)();
 
+#ifdef LUA_CODE_EXISTS
 DLLEXPORT lua::api::I_execution* CPPLUA_GET_API_EXECUTION_DEFINITION();
+#endif // LUA_CODE_EXISTS
 
 #endif

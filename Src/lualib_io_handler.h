@@ -1,8 +1,10 @@
 #ifndef LUALIB_IO_HANDLER_HEADER
 #define LUALIB_IO_HANDLER_HEADER
 
+#include "luaapi_compilation_context.h"
 #include "luaI_object.h"
-#include "luaobject_helper.h"
+#include "luaobject_util.h"
+#include "luavariant.h"
 #include "stdio.h"
 
 #if (_WIN64) || (_WIN32)
@@ -15,35 +17,68 @@
 
 
 namespace lua::lib{
-  class file_Handler;
+  class file_handler;
 
   class io_handler: public lua::object::function_store, virtual public I_object{
     public:
       struct constructor_param{
         // Custom standard files. Can be NULL to let the IO to revert to default C/C++ Standard IO.
         // Object (memory) management shouldn't be managed by any user code, it should be handled by Lua's garbage collector.
+        // But the destruction of the object must be handled by the user code by registering the destructor function to the object.
 
         file_handler* stdout_file;
         file_handler* stdin_file;
         file_handler* stderr_file;
       };
 
+      void* _lua_state;
+      const lua::api::compilation_context* _current_context;
+
+      lua::table_var* _stdout_object;
+      lua::table_var* _stdin_object;
+      lua::table_var* _stderr_object;
+
+      file_handler* _fileout_def;
+      file_handler* _filein_def;
+      file_handler* _fileerr_def;
+
+      lua::error_var* _last_error = NULL;
+
+      void _clear_error();
+      void _set_last_error(long long err_code, const std::string& err_msg);
+      void _copy_error_from(file_handler* file);
+#if (_WIN64) || (_WIN32)
+      void _update_last_error_winapi();
+#endif
+
+      void _fill_error_with_last(I_vararr* res);
+
     public:
-      io_handler(const constructor_param* param);
-      io_handler();
+      io_handler(lua_State* state, const constructor_param* param = NULL);
       ~io_handler();
 
-      static void close(I_object* obj, const I_vararr* args, I_vararr* res);
-      static void flush(I_object* obj, const I_vararr* args, I_vararr* res);
-      static void input(I_object* obj, const I_vararr* args, I_vararr* res);
-      static void lines(I_object* obj, const I_vararr* args, I_vararr* res);
-      static void open(I_object* obj, const I_vararr* args, I_vararr* res);
-      static void output(I_object* obj, const I_vararr* args, I_vararr* res);
-      static void popen(I_object* obj, const I_vararr* args, I_vararr* res);
-      static void read(I_object* obj, const I_vararr* args, I_vararr* res);
-      static void tmpfile(I_object* obj, const I_vararr* args, I_vararr* res);
-      static void type(I_object* obj, const I_vararr* args, I_vararr* res);
-      static void write(I_object* obj, const I_vararr* args, I_vararr* res);
+      const I_error_var* get_last_error();
+
+      static void close(lua::I_object* obj, const lua::I_vararr* args, lua::I_vararr* res);
+      static void flush(lua::I_object* obj, const lua::I_vararr* args, lua::I_vararr* res);
+      static void input(lua::I_object* obj, const lua::I_vararr* args, lua::I_vararr* res);
+      static void lines(lua::I_object* obj, const lua::I_vararr* args, lua::I_vararr* res);
+      static void open(lua::I_object* obj, const lua::I_vararr* args, lua::I_vararr* res);
+      static void output(lua::I_object* obj, const lua::I_vararr* args, lua::I_vararr* res);
+      static void popen(lua::I_object* obj, const lua::I_vararr* args, lua::I_vararr* res);
+      static void read(lua::I_object* obj, const lua::I_vararr* args, lua::I_vararr* res);
+      static void tmpfile(lua::I_object* obj, const lua::I_vararr* args, lua::I_vararr* res);
+      static void type(lua::I_object* obj, const lua::I_vararr* args, lua::I_vararr* res);
+      static void write(lua::I_object* obj, const lua::I_vararr* args, lua::I_vararr* res);
+
+      // Closes all default file, unless it is a std handles.
+      void close();
+      // Flushes output and error default and/or std files.
+      void flush();
+      void input(file_handler* file);
+
+      lua::I_debuggable_object* as_debug_object() override;
+      void on_object_added(const lua::api::core* lua_core) override;
   };
 
 
@@ -91,13 +126,13 @@ namespace lua::lib{
 
       buffering_mode _buffering_mode = buffering_none;
 
-      error_var* _last_error = NULL;
+      lua::error_var* _last_error = NULL;
 
-      table_var* _object_metadata = NULL; // created on object initialization
-      table_var* _object_table = NULL; // created on object pushed to Lua (see on_object_added)
+      lua::table_var* _object_metadata = NULL; // created on object initialization
+      lua::table_var* _object_table = NULL; // created on object pushed to Lua (see on_object_added)
 
       void* _lua_state;
-      const compilation_context* _current_context;
+      const lua::api::compilation_context* _current_context;
 
       void _clear_error();
       void _set_last_error(long long err_code, const std::string& err_msg);
@@ -146,21 +181,23 @@ namespace lua::lib{
       static int _lua_line_cb(void* istate, const lua::api::compilation_context* context);
 
     public:
-      file_handler(void* istate, const lua::api::compilation_context* context, const std::string& path, int op = open_read);
+      file_handler(lua_State* state, const std::string& path, int op = open_read);
 #if (_WIN64) || (_WIN32)
-      file_handler(void* istate, const lua::api::compilation_context* context, HANDLE pipe_handle, bool is_output = true);
+      file_handler(lua_State* state, HANDLE pipe_handle, bool is_output = true);
 #endif
       ~file_handler();
 
-      const I_error_var* get_last_error() const;
+      static file_handler* parse_lua_object(void* istate, const lua::api::compilation_context* context, int index);
 
-      static void close(I_object* obj, const I_vararr* args, I_vararr* res);
-      static void flush(I_object* obj, const I_vararr* args, I_vararr* res);
-      static void lines(I_object* obj, const I_vararr* args, I_vararr* res);
-      static void read(I_object* obj, const I_vararr* args, I_vararr* res);
-      static void seek(I_object* obj, const I_vararr* args, I_vararr* res);
-      static void setvbuf(I_object* obj, const I_vararr* args, I_vararr* res);
-      static void write(I_object* obj, const I_vararr* args, I_vararr* res);
+      const lua::I_error_var* get_last_error() const;
+
+      static void close(lua::I_object* obj, const lua::I_vararr* args, lua::I_vararr* res);
+      static void flush(lua::I_object* obj, const lua::I_vararr* args, lua::I_vararr* res);
+      static void lines(lua::I_object* obj, const lua::I_vararr* args, lua::I_vararr* res);
+      static void read(lua::I_object* obj, const lua::I_vararr* args, lua::I_vararr* res);
+      static void seek(lua::I_object* obj, const lua::I_vararr* args, lua::I_vararr* res);
+      static void setvbuf(lua::I_object* obj, const lua::I_vararr* args, lua::I_vararr* res);
+      static void write(lua::I_object* obj, const lua::I_vararr* args, lua::I_vararr* res);
 
       bool close();
       bool flush();
@@ -170,6 +207,9 @@ namespace lua::lib{
       size_t write(const char* buffer, size_t buffer_size);
       void set_buffering_mode(buffering_mode mode);
 
+      // Only for input files, will be triggered after eof checking when reading the file.
+      void set_automatic_closing(bool flag);
+
       bool already_closed() const;
       bool end_of_file_reached() const;
       size_t get_remaining_read() const;
@@ -177,8 +217,8 @@ namespace lua::lib{
       bool can_write() const;
       bool can_read() const;
 
-      I_debuggable_object* as_debug_object() override;
-      void on_object_added(void* istate, const lua::api::compilation_context* context) override;
+      lua::I_debuggable_object* as_debug_object() override;
+      void on_object_added(const lua::api::core* lua_core) override;
   };
 }
 

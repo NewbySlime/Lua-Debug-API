@@ -1,7 +1,7 @@
 #ifndef I_LUA_OBJECT_HEADER
 #define I_LUA_OBJECT_HEADER
 
-#include "luaapi_compilation_context.h"
+#include "luaapi_core.h"
 
 
 namespace lua{
@@ -26,11 +26,11 @@ namespace lua{
       virtual const char* get_function_name(int idx) const = 0;
       virtual lua_function get_function(int idx) const = 0;
 
-      virtual I_debuggable_object* as_debug_object() = 0;
+      virtual lua::I_debuggable_object* as_debug_object() = 0;
 
       // top most table is the object representation of the lua object
-      virtual void on_object_added(void* state_interface, const lua::api::compilation_context* context) = 0;
+      virtual void on_object_added(const lua::api::core* lua_core) = 0;
   };
 }
 
-#endif                                                              
+#endif

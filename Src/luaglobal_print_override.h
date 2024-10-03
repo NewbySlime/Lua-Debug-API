@@ -4,7 +4,7 @@
 
 #include "I_debug_user.h"
 #include "library_linking.h"
-#include "lua_includes.h"
+#include "luaincludes.h"
 #include "string_store.h"
 
 #include "set"
@@ -32,6 +32,9 @@ namespace lua::global{
       virtual void remove_event_read(HANDLE event) = 0;
 #endif
   };
+
+
+#ifdef LUA_CODE_EXISTS
 
   class print_override: public I_print_override{
     private:
@@ -78,7 +81,10 @@ namespace lua::global{
 
       void set_logger(I_logger* logger) override;
   };
+#endif // LUA_CODE_EXISTS
+
 }
+
 
 
 // MARK: DLL functions
@@ -91,5 +97,10 @@ namespace lua::global{
 
 typedef lua::global::I_print_override* (__stdcall *gpo_create_func)(void* state);
 typedef void (__stdcall *gpo_delete_func)(lua::global::I_print_override* obj);
+
+#ifdef LUA_CODE_EXISTS
+DLLEXPORT lua::global::I_print_override* CPPLUA_CREATE_GLOBAL_PRINT_OVERRIDE(void* istate);
+DLLEXPORT void CPPLUA_DELETE_GLOBAL_PRINT_OVERRIDE(lua::global::I_print_override* obj);
+#endif // LUA_CODE_EXISTS
 
 #endif

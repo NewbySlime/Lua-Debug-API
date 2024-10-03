@@ -1,7 +1,7 @@
 #ifndef LUASTACK_ITER_HEADER
 #define LUASTACK_ITER_HEADER
 
-#include "lua_includes.h"
+#include "luaincludes.h"
 
 
 #define LUA_CONV_T2B(state, top_stack) (lua_gettop(state) + 1 + top_stack)

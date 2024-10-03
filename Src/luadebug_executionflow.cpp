@@ -2,6 +2,7 @@
 #include "luastack_iter.h"
 #include "luatable_util.h"
 #include "luaruntime_handler.h"
+#include "luavariant_util.h"
 #include "stdlogger.h"
 
 
@@ -14,6 +15,8 @@ using namespace lua::debug;
 
 #define FNAME_TAILCALLED_FLAG " (tailcalled)"
 
+
+#ifdef LUA_CODE_EXISTS
 
 // MARK: lua::debug::execution_flow
 execution_flow::execution_flow(lua_State* state){
@@ -400,3 +403,5 @@ void execution_flow::set_logger(I_logger* logger){
     
   _logger = logger;
 }
+
+#endif // LUA_CODE_EXISTS

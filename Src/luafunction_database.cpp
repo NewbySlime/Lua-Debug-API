@@ -1,4 +1,6 @@
 #include "luafunction_database.h"
+#include "luautility.h"
+#include "luavariant_util.h"
 #include "stdlogger.h"
 
 #include "cstring"
@@ -7,9 +9,12 @@
 
 
 using namespace lua;
+using namespace lua::api;
 using namespace lua::debug;
+using namespace lua::utility;
 
 
+#ifdef LUA_CODE_EXISTS
 
 // MARK: lua::func_db
 func_db::func_db(lua_State* state){
@@ -32,7 +37,7 @@ func_db::func_db(lua_State* state){
 
   _this_state = state;
   lightuser_var _lud_var = this;
-  _lud_var.setglobal(_this_state, LUD_FUNCDB_VARNAME);
+  set_global(state, LUD_FUNCDB_VARNAME, &_lud_var);
 }
 
 func_db::~func_db(){
@@ -48,7 +53,7 @@ func_db::~func_db(){
 
   if(_this_state){
     nil_var _nil_filler;
-    _nil_filler.setglobal(_this_state, LUD_FUNCDB_VARNAME);
+    set_global(_this_state, LUD_FUNCDB_VARNAME, &_nil_filler);
   }
 }
 
@@ -114,6 +119,8 @@ bool func_db::_c_delete_metadata(const std::string& name){
 
 
 lua::variant* func_db::_call_lua_function(int arg_count, int return_count, int msgh){
+  core _lc = as_lua_api_core(_this_state);
+ 
   if(!_this_state)
     return NULL;
 
@@ -125,7 +132,7 @@ lua::variant* func_db::_call_lua_function(int arg_count, int return_count, int m
   );
 
   if(_error_code != LUA_OK){
-    error_var* _err_data = new error_var(_this_state, -1);
+    error_var* _err_data = new error_var(&_lc, -1);
     _err_data->set_error_code(_error_code);
 
     return _err_data;
@@ -139,6 +146,8 @@ lua::variant* func_db::_call_lua_function(int arg_count, int return_count, int m
 
 
 int func_db::_c_function_cb_nonstrict(lua_State* state){
+  core _lc = as_lua_api_core(state);
+
   func_db* _this = get_state_db(state);
   if(!_this)
     return 0;
@@ -163,7 +172,7 @@ int func_db::_c_function_cb_nonstrict(lua_State* state){
   // push results
   for(int i = 0; i < _results.get_var_count(); i++){
     variant* _var = cpplua_create_var_copy(_results.get_var(i));
-    _var->push_to_stack(_this->_this_state);
+    _var->push_to_stack(&_lc);
 
     delete _var;
   }
@@ -241,6 +250,8 @@ bool func_db::expose_c_function_nonstrict(const char* function_name, function_cb
 
 
 bool func_db::call_lua_function_nonstrict(const char* function_name, const lua::I_vararr* args, lua::I_vararr* results){
+  core _lc = as_lua_api_core(_this_state);
+  
   if(!_this_state)
     return false;
 
@@ -258,7 +269,7 @@ bool func_db::call_lua_function_nonstrict(const char* function_name, const lua::
     // push arguments
     for(int i = 0; i < args->get_var_count(); i++){
       variant* _var = cpplua_create_var_copy(args->get_var(i));
-      _var->push_to_stack(_this_state);
+      _var->push_to_stack(&_lc);
 
       cpplua_delete_variant(_var); 
     }
@@ -284,3 +295,5 @@ bool func_db::call_lua_function_nonstrict(const char* function_name, const lua::
     lua_pop(_this_state, 1);
   return false;}
 }
+
+#endif // LUA_CODE_EXISTS

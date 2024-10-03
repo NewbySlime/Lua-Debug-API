@@ -3,7 +3,7 @@
 
 #include "I_debug_user.h"
 #include "library_linking.h"
-#include "lua_includes.h"
+#include "luaincludes.h"
 
 #include "map"
 
@@ -29,6 +29,9 @@ namespace lua::debug{
 
       virtual const lua_Debug* get_current_debug_value() const = 0;
   };
+
+
+#ifdef LUA_CODE_EXISTS
 
   // NOTE: lua_State shouldn't be destroyed in this class' lifetime
   class hook_handler: public I_hook_handler{
@@ -71,6 +74,9 @@ namespace lua::debug{
 
       void set_logger(I_logger* logger) override;
   };
+  
+#endif // LUA_CODE_EXISTS
+
 }
 
 #endif

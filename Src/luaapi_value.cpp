@@ -1,7 +1,10 @@
 #include "luaapi_value.h"
+#include "luavariant.h"
 
 using namespace lua::api;
 
+
+#ifdef LUA_CODE_EXISTS
 
 class _api_value_function: public I_value{
   public:
@@ -54,6 +57,7 @@ class _api_value_function: public I_value{
     size_t rawlen(void* istate, int idx) override{return lua_rawlen((lua_State*)istate, idx);}
     void rawseti(void* istate, int idx, lua_Integer n) override{return lua_rawseti((lua_State*)istate, idx, n);}
     void rawsetp(void* istate, int idx, const void* p) override{return lua_rawsetp((lua_State*)istate, idx, p);}
+    void lregister(void* istate, const char* name, lua_CFunction f) override{lua_register((lua_State*)istate, name, f);}
     void setfield(void* istate, int idx, const char* key) override{lua_setfield((lua_State*)istate, idx, key);}
     void setglobal(void* istate, const char* name) override{lua_setglobal((lua_State*)istate, name);}
     void seti(void* istate, int idx, lua_Integer n) override{lua_seti((lua_State*)istate, idx, n);}
@@ -72,7 +76,19 @@ class _api_value_function: public I_value{
     void* tothread(void* istate, int idx) override{return lua_tothread((lua_State*)istate, idx);}
     void* touserdata(void* istate, int idx) override{return lua_touserdata((lua_State*)istate, idx);}
     int type(void* istate, int idx) override{return lua_type((lua_State*)istate, idx);}
-    const char* ttypename(void* istate, int type) override{return lua_typename((lua_State*)istate, type);}
+
+    const char* ttypename(void* istate, int type) override{
+      switch(type){
+        break; case LUA_TERROR:
+          return "Error Object";
+        
+        break; case LUA_TCPPOBJECT:
+          return "CPP Object";
+
+        break; default:
+          return lua_typename((lua_State*)istate, type);
+      }
+    }
 
 
     const char* pushfstring(void* istate, const char* fmt, ...) override{
@@ -91,3 +107,5 @@ static _api_value_function __api_def;
 DLLEXPORT lua::api::I_value* CPPLUA_GET_API_VALUE_DEFINITION(){
   return &__api_def;
 }
+
+#endif // LUA_CODE_EXISTS

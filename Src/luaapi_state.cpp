@@ -2,6 +2,7 @@
 
 using namespace lua::api;
 
+#ifdef LUA_CODE_EXISTS
 
 class _api_state_function: public I_state{
   public:
@@ -16,3 +17,5 @@ static _api_state_function __api_def;
 DLLEXPORT lua::api::I_state* CPPLUA_GET_API_STATE_DEFINITION(){
   return &__api_def;
 }
+
+#endif // LUA_CODE_EXISTS

@@ -1,14 +1,19 @@
 #include "library_linking.h"
+#include "luaapi_variant_util.h"
 #include "luatable_util.h"
 #include "luavariable_watcher.h"
+#include "luavariant_util.h"
 #include "stdlogger.h"
 
 #define LUD_VARIABLE_WATCHER_VAR_NAME "__clua_variable_watcher"
 
 
 using namespace lua;
+using namespace lua::api;
 using namespace lua::debug;
 
+
+#ifdef LUA_CODE_EXISTS
 
 // MARK: lua::debug::variable_watcher
 
@@ -68,7 +73,7 @@ void variable_watcher::_clear_variable_data(){
 
 void variable_watcher::_set_bind_obj(variable_watcher* obj, lua_State* state){
   lightuser_var _lud_var = obj;
-  _lud_var.setglobal(state, LUD_VARIABLE_WATCHER_VAR_NAME);
+  set_global(state, LUD_VARIABLE_WATCHER_VAR_NAME, &_lud_var);
 }
 
 
@@ -113,16 +118,17 @@ bool variable_watcher::fetch_global_table_data(){
 
   lua_pushglobaltable(_state);
 
-  iterate_table(_state, -1, [](lua_State* state, int key_stack_idx, int value_stack_idx, int iter_idx, void* cb_data){
+  iterate_table(_state, -1, [](const core* lc, int key_stack_idx, int value_stack_idx, int iter_idx, void* cb_data){
     variable_watcher* _this = (variable_watcher*)cb_data;
+    lua_State* _state = (lua_State*)lc->istate;
 
-    variant* _key_data = to_variant(state, key_stack_idx);
+    variant* _key_data = to_variant(_state, key_stack_idx);
     auto _iter = _this->_global_ignore_variables.find(_key_data);
     if(_iter == _this->_global_ignore_variables.end()){
       _variable_data* _vdata = new _variable_data();
       _vdata->var_name = _key_data->to_string();
-      _vdata->var_data = to_variant(state, value_stack_idx);
-      _vdata->lua_type = lua_type(state, value_stack_idx);
+      _vdata->var_data = to_variant(_state, value_stack_idx);
+      _vdata->lua_type = lua_type(_state, value_stack_idx);
 
       _this->_vdata_list.insert(_this->_vdata_list.end(), _vdata);
       _this->_vdata_map[_vdata->var_name] = _vdata;
@@ -142,10 +148,11 @@ void variable_watcher::update_global_table_ignore(){
   lua_pushglobaltable(_state);
 
   // find all key
-  iterate_table(_state, -1, [](lua_State* state, int key_stack_idx, int value_stack_idx, int iter_idx, void* cb_data){
+  iterate_table(_state, -1, [](const core* lc, int key_stack_idx, int value_stack_idx, int iter_idx, void* cb_data){
     variable_watcher* _this = (variable_watcher*)cb_data;
+    lua_State* _state = (lua_State*)lc->istate;
     
-    variant* _key_data = to_variant(state, key_stack_idx);
+    variant* _key_data = to_variant(_state, key_stack_idx);
     _this->_global_ignore_variables.insert(_key_data);
 
     cpplua_delete_variant(_key_data);
@@ -215,3 +222,5 @@ DLLEXPORT I_variable_watcher* CPPLUA_CREATE_VARIABLE_WATCHER(void* interface_sta
 DLLEXPORT void CPPLUA_DELETE_VARIABLE_WATCHER(I_variable_watcher* watcher){
   delete watcher;
 }
+
+#endif // LUA_CODE_EXISTS

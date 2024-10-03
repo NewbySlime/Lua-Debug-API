@@ -1,7 +1,10 @@
 #include "luaapi_stack.h"
+#include "luastack_iter.h"
 
 using namespace lua::api;
 
+
+#ifdef LUA_CODE_EXISTS
 
 class _api_stack_function: public I_stack{
   public:
@@ -16,7 +19,21 @@ class _api_stack_function: public I_stack{
     void replace(void* istate, int idx) override{lua_replace((lua_State*)istate, idx);}
     void rotate(void* istate, int idx, int n) override{lua_rotate((lua_State*)istate, idx, n);}
     void settop(void* istate, int idx) override{lua_settop((lua_State*)istate, idx);}
-    void xmove(void* ifrom, void* ito, int n) override{lua_xmove((lua_State*)ifrom, (lua_State*)ito, n);} 
+    void xmove(void* ifrom, void* ito, int n) override{lua_xmove((lua_State*)ifrom, (lua_State*)ito, n);}
+
+    int convbottom2top(void* istate, int idx) override{
+      if(idx < 0)
+        return idx;
+
+      return LUA_CONV_B2T((lua_State*)istate, idx);
+    }
+
+    int convtop2bottom(void* istate, int idx) override{
+      if(idx > 0)
+        return idx;
+
+      return LUA_CONV_T2B((lua_State*)istate, idx);
+    }
 };
 
 
@@ -25,3 +42,5 @@ static _api_stack_function __api_def;
 DLLEXPORT lua::api::I_stack* CPPLUA_GET_API_STACK_DEFINITION(){
   return &__api_def;
 }
+
+#endif // LUA_CODE_EXISTS

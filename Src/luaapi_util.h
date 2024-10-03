@@ -2,7 +2,7 @@
 #define LUAAPI_UTIL_HEADER
 
 #include "library_linking.h"
-#include "lua_includes.h"
+#include "luaincludes.h"
 #include "macro_helper.h"
 
 
@@ -23,6 +23,8 @@ namespace lua::api{
 
 typedef lua::api::I_util* (__stdcall *get_api_util_func)();
 
+#ifdef LUA_CODE_EXISTS
 DLLEXPORT lua::api::I_util* CPPLUA_GET_API_UTIL_DEFINITION();
+#endif // LUA_CODE_EXISTS
 
 #endif

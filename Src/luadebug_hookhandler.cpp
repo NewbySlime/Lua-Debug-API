@@ -1,7 +1,8 @@
-#include "lua_variant.h"
+#include "luavariant.h"
+#include "luavariant_util.h"
 #include "luadebug_hookhandler.h"
 #include "stdlogger.h"
-#include "strutil.h"
+#include "string_util.h"
 
 #define LUD_HOOK_VAR_NAME "__clua_hook_handler"
 
@@ -11,6 +12,8 @@ using namespace lua::debug;
 
 #define LUA_MAX_MASK_COUNT (LUA_HOOKCOUNT + 1)
 
+
+#ifdef LUA_CODE_EXISTS
 
 // MARK: lua::hook_handler
 hook_handler::hook_handler(lua_State* state, int count){
@@ -28,7 +31,7 @@ hook_handler::hook_handler(lua_State* state, int count){
 
   _this_state = state;
   lightuser_var _lud_var = this;
-  _lud_var.setglobal(_this_state, LUD_HOOK_VAR_NAME);
+  set_global(_this_state, LUD_HOOK_VAR_NAME, &_lud_var);
 
   _update_hook_config();
 }
@@ -36,7 +39,7 @@ hook_handler::hook_handler(lua_State* state, int count){
 hook_handler::~hook_handler(){
   if(_this_state){
     nil_var _lud_var;
-    _lud_var.setglobal(_this_state, LUD_HOOK_VAR_NAME);
+    set_global(_this_state, LUD_HOOK_VAR_NAME, &_lud_var);
   }
 }
 
@@ -176,3 +179,5 @@ const lua_Debug* hook_handler::get_current_debug_value() const{
 void hook_handler::set_logger(I_logger* logger){
   _logger = logger;
 }
+
+#endif // LUA_CODE_EXISTS

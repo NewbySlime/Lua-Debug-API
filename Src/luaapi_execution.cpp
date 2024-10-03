@@ -3,6 +3,8 @@
 using namespace lua::api;
 
 
+#ifdef LUA_CODE_EXISTS
+
 class _api_execution_function: public I_execution{
   public:
     void call(void* istate, int nargs, int nresults) override{lua_call((lua_State*)istate, nargs, nresults);}
@@ -21,3 +23,5 @@ static _api_execution_function __api_def;
 DLLEXPORT lua::api::I_execution* CPPLUA_GET_API_EXECUTION_DEFINITION(){
   return &__api_def;
 }
+
+#endif // LUA_CODE_EXISTS

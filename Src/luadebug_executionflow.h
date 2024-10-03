@@ -4,7 +4,7 @@
 #include "I_debug_user.h"
 #include "I_logger.h"
 #include "library_linking.h"
-#include "lua_includes.h"
+#include "luaincludes.h"
 #include "luadebug_hookhandler.h"
 
 #include "condition_variable"
@@ -64,6 +64,8 @@ namespace lua::debug{
       virtual const lua_Debug* get_debug_data() const = 0;
   };
 
+
+#ifdef LUA_CODE_EXISTS
 
   // NOTE: This will block the running thread for lua runtime. Preferably to use multi threading for lua and main processing.
   //  lua_State shouldn't be destroyed in this class' lifetime
@@ -154,6 +156,10 @@ namespace lua::debug{
 
       void set_logger(I_logger* logger) override;
   };
+
+#endif // LUA_CODE_EXISTS
+
 }
+
 
 #endif
