@@ -1,6 +1,7 @@
 #include "luaapi_debug.h"
 
 using namespace lua::api;
+using namespace lua::debug;
 
 
 #ifdef LUA_CODE_EXISTS
@@ -26,6 +27,31 @@ class _api_debug_function: public I_debug{
 
     void delete_lua_debug_obj(void* dbg_obj) override{
       delete dbg_obj;
+    }
+
+
+    I_execution_flow* create_execution_flow(void* istate) override{
+      return cpplua_create_execution_flow(istate);
+    }
+
+    void delete_execution_flow(I_execution_flow* object) override{
+      cpplua_delete_execution_flow(object);
+    }
+
+    I_hook_handler* create_hook_handler(void* istate, int count) override{
+      return cpplua_create_hook_handler(istate, count);
+    }
+
+    void delete_hook_handler(I_hook_handler* object) override{
+      cpplua_delete_hook_handler(object);
+    }
+
+    I_variable_watcher* create_variable_watcher(void* istate) override{
+      return cpplua_create_variable_watcher(istate);
+    }
+
+    void delete_variable_watcher(I_variable_watcher* object) override{
+      cpplua_delete_variable_watcher(object);
     }
 };
 

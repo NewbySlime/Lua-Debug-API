@@ -1,13 +1,18 @@
 #include "luadebug_executionflow.h"
+#include "luainternal_storage.h"
 #include "luastack_iter.h"
 #include "luatable_util.h"
+#include "luautility.h"
 #include "luaruntime_handler.h"
 #include "luavariant_util.h"
-#include "stdlogger.h"
+#include "std_logger.h"
 
 
 using namespace lua;
+using namespace lua::api;
 using namespace lua::debug;
+using namespace lua::internal;
+using namespace lua::utility;
 
 #define FILE_PATH_MAX_BUFFER_SIZE 1024
 
@@ -22,7 +27,7 @@ using namespace lua::debug;
 execution_flow::execution_flow(lua_State* state){
   _hook_handler = hook_handler::get_this_attached(state);
   _this_state = NULL;
-  _logger = get_stdlogger();
+  _logger = get_std_logger();
 
   if(!state){
     _logger->print_error("Cannot bind execution_flow to lua_State. Reason: lua_State provided is NULL.\n");
@@ -202,24 +207,26 @@ void execution_flow::_hookcb(){
 
 
 void execution_flow::_set_bind_obj(execution_flow* obj, lua_State* state){
-  lua_getglobal(state, LUD_EXECUTION_FLOW_VARNAME);
+  require_internal_storage(state); // s+1
+  lua_pushstring(state, LUD_EXECUTION_FLOW_VARNAME); // s+1
+  lua_gettable(state, -2); // s-1+1
   if(lua_type(state, -1) != LUA_TTABLE){
-    lua_pop(state, 1);
+    lua_pop(state, 1); // s-1
+    lua_newtable(state); // s+1
 
-    lua_newtable(state);
-    lua_setglobal(state, LUD_EXECUTION_FLOW_VARNAME);
-
-    lua_getglobal(state, LUD_EXECUTION_FLOW_VARNAME);
+    lua_pushstring(state, LUD_EXECUTION_FLOW_VARNAME); // s+1
+    lua_pushvalue(state, -2); // s+1
+    lua_settable(state, -4); // s-2
   }
 
   string_var _key_var = from_pointer_to_str(state);
   lightuser_var _value_var = lightuser_var(obj);
 
   // possible multiple object in one state for in case of multi threading
-  set_table_value(state, LUA_CONV_T2B(state, -1), &_key_var, &_value_var);
+  set_table_value(state, -1, &_key_var, &_value_var);
 
   // pop the global table
-  lua_pop(state, 1);
+  lua_pop(state, 1); // s-1
 }
 
 
@@ -231,14 +238,16 @@ void execution_flow::_hookcb_static(lua_State* state, void* cb_data){
 execution_flow* execution_flow::get_attached_obj(lua_State* state){
   execution_flow* _result = NULL;
 
-  lua_getglobal(state, LUD_EXECUTION_FLOW_VARNAME);
+  require_internal_storage(state); // s+1
+  lua_pushstring(state, LUD_EXECUTION_FLOW_VARNAME); // s+1
+  lua_gettable(state, -2); // s-1+1
   if(lua_type(state, -1) != LUA_TTABLE)
     goto skip_checking_label;
 
   try{
     string_var _key_var = from_pointer_to_str(state);
 
-    variant* _value = get_table_value(state, LUA_CONV_T2B(state, -1), &_key_var);
+    variant* _value = get_table_value(state, -1, &_key_var);
     if(_value->get_type() == LUA_TLIGHTUSERDATA)
       _result = (execution_flow*)((lightuser_var*)_value)->get_data();
   }
@@ -249,7 +258,7 @@ execution_flow* execution_flow::get_attached_obj(lua_State* state){
 
   skip_checking_label:{}
 
-  lua_pop(state, 1);
+  lua_pop(state, 1); // s-1
   return _result;
 }
 
@@ -402,6 +411,17 @@ void execution_flow::set_logger(I_logger* logger){
     return;
     
   _logger = logger;
+}
+
+
+// MARK: DLL definitions
+
+DLLEXPORT lua::debug::I_execution_flow* CPPLUA_CREATE_EXECUTION_FLOW(void* istate){
+  return new execution_flow((lua_State*)istate);
+}
+
+DLLEXPORT void CPPLUA_DELETE_EXECUTION_FLOW(lua::debug::I_execution_flow* object){
+  delete object;
 }
 
 #endif // LUA_CODE_EXISTS

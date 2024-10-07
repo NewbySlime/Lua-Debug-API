@@ -2,10 +2,12 @@
 #define LUAFUNCTION_DATABASE_HEADER
 
 #include "I_debug_user.h"
+#include "library_linking.h"
 #include "luaincludes.h"
 #include "luavariant_arr.h"
 #include "luavariant.h"
 #include "luadebug_hookhandler.h"
+#include "macro_helper.h"
 #include "string_util.h"
 
 #include "map"
@@ -253,8 +255,24 @@ namespace lua{
         return new lua::variant();}
       }
   };
+
 #endif // LUA_CODE_EXISTS
 
 }
+
+
+#define CPPLUA_CREATE_FUNCTION_DATABASE cpplua_create_function_database
+#define CPPLUA_CREATE_FUNCTION_DATABASE_STR MACRO_TO_STR_EXP(CPPLUA_CREATE_FUNCTION_DATABASE)
+
+#define CPPLUA_DELETE_FUNCTION_DATABASE cpplua_delete_function_database
+#define CPPLUA_DELETE_FUNCTION_DATABASE_STR MACRO_TO_STR_EXP(CPPLUA_DELETE_FUNCTION_DATABASE)
+
+typedef lua::I_func_db* (__stdcall *fdb_create_func)(void* istate);
+typedef void (__stdcall *fdb_delete_func)(lua::I_func_db* database);
+
+#ifdef LUA_CODE_EXISTS
+DLLEXPORT lua::I_func_db* CPPLUA_CREATE_FUNCTION_DATABASE(void* istate);
+DLLEXPORT void CPPLUA_DELETE_FUNCTION_DATABASE(lua::I_func_db* database);
+#endif // LUA_CODE_EXISTS
 
 #endif

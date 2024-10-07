@@ -5,6 +5,7 @@
 
 #include "stdexcept"
 
+using namespace lua;
 using namespace lua::api;
 using namespace lua::utility;
 

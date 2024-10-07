@@ -14,7 +14,7 @@
 #include "luastack_iter.h"
 #include "luatable_util.h"
 #include "luautility.h"
-#include "stdlogger.h"
+#include "std_logger.h"
 #include "string_util.h"
 
 #include "cmath"
@@ -40,7 +40,7 @@ using namespace lua::api;
 using namespace lua::utility;
 
 
-stdlogger _default_logger = stdlogger();
+std_logger _default_logger = std_logger();
 const I_logger* _logger = &_default_logger;
 
 
@@ -175,7 +175,7 @@ void string_var::_append_cstr(const char* cstr, std::size_t strlen){
 
 
 int string_var::_strcmp(const string_var& var1, const string_var& var2){
-  std::size_t _check_len = std::min(var1._mem_size, var2._mem_size);
+  std::size_t _check_len = min(var1._mem_size, var2._mem_size);
   for(int i = 0; i < _check_len; i++){
     char _v1_ch = var1[i];
     char _v2_ch = var2[i];
@@ -2106,7 +2106,8 @@ bool object_var::from_object_reference(const core* lc, I_object* obj){
 }
 
 void object_var::push_to_stack(const core* lc) const{
-  if(!_oref){
+  // Shouldn't be pushed when different runtime state, since the object memory management already handled in another runtime state.
+  if(!_oref || !check_same_runtime(lc, &_lc)){
     lc->context->api_value->pushnil(lc->istate);
     return;
   }

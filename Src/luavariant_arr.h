@@ -13,9 +13,12 @@ namespace lua{
     public:
       virtual ~I_vararr(){}
 
+      // Function will not create a copy to return.
       virtual const lua::I_variant* get_var(int idx) const = 0;
 
+      // Function will create a copy to store.
       virtual bool set_var(const lua::I_variant* data, int idx) = 0;
+      // Function will create a copy to store.
       virtual void append_var(const lua::I_variant* data) = 0;
 
       virtual void append(const I_vararr* arr) = 0;

@@ -1,6 +1,9 @@
 #ifndef LUAAPI_DEBUG_HEADER
 #define LUAAPI_DEBUG_HEADER
 
+#include "luadebug_executionflow.h"
+#include "luadebug_hookhandler.h"
+#include "luadebug_variable_watcher.h"
 #include "library_linking.h"
 #include "luaincludes.h"
 #include "macro_helper.h"
@@ -24,6 +27,13 @@ namespace lua::api{
 
       virtual void* create_lua_debug_obj() = 0;
       virtual void delete_lua_debug_obj(void* dbg_obj) = 0;
+
+      virtual lua::debug::I_execution_flow* create_execution_flow(void* istate) = 0;
+      virtual void delete_execution_flow(lua::debug::I_execution_flow* object) = 0;
+      virtual lua::debug::I_hook_handler* create_hook_handler(void* istate, int count) = 0;
+      virtual void delete_hook_handler(lua::debug::I_hook_handler* object) = 0;
+      virtual lua::debug::I_variable_watcher* create_variable_watcher(void* istate) = 0;
+      virtual void delete_variable_watcher(lua::debug::I_variable_watcher* object) = 0;
   };
 }
 

@@ -4,6 +4,7 @@
 #include "I_debug_user.h"
 #include "library_linking.h"
 #include "luaincludes.h"
+#include "macro_helper.h"
 
 #include "map"
 
@@ -56,6 +57,8 @@ namespace lua::debug{
       void _update_hook_config();
       void _on_hook_event(lua_State* state, lua_Debug* dbg);
 
+      static void _set_bind_obj(lua_State* state, hook_handler* obj);
+
       static void _on_hook_event_static(lua_State* state, lua_Debug* dbg);
 
     public:
@@ -78,5 +81,21 @@ namespace lua::debug{
 #endif // LUA_CODE_EXISTS
 
 }
+
+
+
+#define CPPLUA_CREATE_HOOK_HANDLER cpplua_create_hook_handler
+#define CPPLUA_CREATE_HOOK_HANDLER_STR MACRO_TO_STR_EXP(CPPLUA_CREATE_HOOK_HANDLER)
+
+#define CPPLUA_DELETE_HOOK_HANDLER cpplua_delete_hook_handler
+#define CPPLUA_DELETE_HOOK_HANDLER_STR MACRO_TO_STR_EXP(CPPLUA_DELETE_HOOK_HANDLER)
+
+typedef lua::debug::I_hook_handler* (__stdcall *hh_create_func)(void* istate, int count);
+typedef void (__stdcall *hh_delete_func)(lua::debug::I_hook_handler* object);
+
+#ifdef LUA_CODE_EXISTS
+DLLEXPORT lua::debug::I_hook_handler* CPPLUA_CREATE_HOOK_HANDLER(void* istate, int count);
+DLLEXPORT void CPPLUA_DELETE_HOOK_HANDLER(lua::debug::I_hook_handler* object);
+#endif // LUA_CODE_EXISTS
 
 #endif

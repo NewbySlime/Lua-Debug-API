@@ -81,6 +81,7 @@ namespace lua::global{
 
       void set_logger(I_logger* logger) override;
   };
+  
 #endif // LUA_CODE_EXISTS
 
 }

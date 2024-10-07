@@ -1,14 +1,20 @@
+#include "luaapi_core.h"
+#include "luainternal_storage.h"
 #include "luavariant.h"
 #include "luavariant_util.h"
 #include "luaruntime_handler.h"
-#include "stdlogger.h"
+#include "luautility.h"
+#include "std_logger.h"
 
 #define LUD_RUNTIME_HANDLER_VAR_NAME "__clua_runtime_handler"
 #define LUD_RUNTIME_HANDLER_LUA_CHUNK_FUNC "__clua_runtime_handler_main_func"
 
 
 using namespace lua;
+using namespace lua::api;
 using namespace lua::debug;
+using namespace lua::internal;
+using namespace lua::utility;
 
 
 #ifdef LUA_CODE_EXISTS
@@ -18,7 +24,7 @@ using namespace lua::debug;
 runtime_handler::runtime_handler(lua_State* state){
   _create_own_lua_state = false;
 
-  _logger = get_stdlogger();
+  _logger = get_std_logger();
   _state = NULL;
 
 #if (_WIN64) || (_WIN32)
@@ -86,7 +92,6 @@ runtime_handler::~runtime_handler(){
   _set_bind_obj(NULL, _state);
 
   delete _execution_flow;
-  delete _function_database;
   delete _hook_handler;
   delete _library_loader;
 
@@ -124,7 +129,7 @@ DWORD __stdcall runtime_handler::_thread_entry_point(LPVOID data){
 void runtime_handler::_initiate_constructor(){
   _create_own_lua_state = true;
   
-  _logger = get_stdlogger();
+  _logger = get_std_logger();
   _state = luaL_newstate();
 
 #if (_WIN64) || (_WIN32)
@@ -133,16 +138,14 @@ void runtime_handler::_initiate_constructor(){
 }
 
 void runtime_handler::_initiate_class(){
-  _set_bind_obj(this, _state);
-
   _hook_handler = new hook_handler(_state);
   _hook_handler->set_hook(LUA_MASKLINE, _hookcb_static, this);
 
   _execution_flow = new execution_flow(_state);
 
-  _function_database = new func_db(_state);
-
   _library_loader = new library_loader(_state);
+
+  _set_bind_obj(this, _state);
 }
 
 
@@ -181,8 +184,14 @@ void runtime_handler::_hookcb(){
 
 
 void runtime_handler::_set_bind_obj(runtime_handler* obj, lua_State* state){
-  lightuser_var _lud_var = obj;
-  set_global(state, LUD_RUNTIME_HANDLER_VAR_NAME, &_lud_var);
+  require_internal_storage(state); // s+1
+
+  lua_pushstring(state, LUD_RUNTIME_HANDLER_VAR_NAME); // s+1
+  lua_pushlightuserdata(state, obj); // s+1
+  lua_settable(state, -3); // s-2
+
+  // pop internal storage
+  lua_pop(state, 1); // s-1
 }
 
 
@@ -192,11 +201,16 @@ void runtime_handler::_hookcb_static(lua_State* state, void* cbdata){
 
 
 runtime_handler* runtime_handler::get_attached_object(lua_State* state){
-  variant* _lud_var = to_variant_fglobal(state, LUD_RUNTIME_HANDLER_VAR_NAME);
-  runtime_handler* _result = 
-    (runtime_handler*)(_lud_var->get_type() == lightuser_var::get_static_lua_type()?((lightuser_var*)_lud_var)->get_data(): NULL);
+  runtime_handler* _result = NULL;
+  require_internal_storage(state); // s+1
 
-  delete _lud_var;
+  lua_pushstring(state, LUD_RUNTIME_HANDLER_VAR_NAME); // s+1
+  lua_gettable(state, -2); // s-1+1
+  if(lua_type(state, -1) == LUA_TLIGHTUSERDATA)
+    _result = (runtime_handler*)lua_touserdata(state, -1);
+
+  // pop internal storage and gettable result
+  lua_pop(state, 2);
   return _result;
 }
 
@@ -209,10 +223,10 @@ void* runtime_handler::get_lua_state_interface(){
   return _state;
 }
 
-
-func_db* runtime_handler::get_function_database(){
-  return _function_database;
+core runtime_handler::get_lua_core_copy(){
+  return as_lua_api_core(_state);
 }
+
 
 hook_handler* runtime_handler::get_hook_handler(){
   return _hook_handler;
@@ -226,10 +240,6 @@ library_loader* runtime_handler::get_library_loader(){
   return _library_loader;
 }
 
-
-I_func_db* runtime_handler::get_function_database_interface(){
-  return _function_database;
-}
 
 I_hook_handler* runtime_handler::get_hook_handler_interface(){
   return _hook_handler;
@@ -324,11 +334,16 @@ int runtime_handler::run_current_file(){
   if(!_state)
     return -1;
 
-  lua_getglobal(_state, LUD_RUNTIME_HANDLER_LUA_CHUNK_FUNC);
-  int _err_code = lua_pcall(_state, 0, 0, 0);
+  require_internal_storage(_state); // s+1
+  lua_pushstring(_state, LUD_RUNTIME_HANDLER_LUA_CHUNK_FUNC); // s+1
+  lua_gettable(_state, -2); // s-1+1
+  int _err_code = lua_pcall(_state, 0, 0, 0); // s-1
+
+  // pop internal storage
+  lua_pop(_state, 1); // s-1
   if(_err_code != LUA_OK)
     _read_error_obj();
-  
+
   return _err_code;
 }
 
@@ -336,13 +351,19 @@ int runtime_handler::load_file(const char* lua_path){
   if(!_state)
     return -1;
 
-  int _err_code = luaL_loadfile(_state, lua_path);
+  int _err_code = luaL_loadfile(_state, lua_path); // main function s+1
   if(_err_code != LUA_OK){
     _read_error_obj();
     return _err_code;
   }
+  
+  require_internal_storage(_state); // s+1
 
-  lua_setglobal(_state, LUD_RUNTIME_HANDLER_LUA_CHUNK_FUNC);
+  lua_pushstring(_state, LUD_RUNTIME_HANDLER_LUA_CHUNK_FUNC); // s+1
+  lua_pushvalue(_state, -3); // copy main function s+1
+  lua_settable(_state, -3); // s-2
+
+  lua_pop(_state, 2); // pop main function and internal storage
   return LUA_OK;
 }
 
@@ -384,7 +405,6 @@ void runtime_handler::set_logger(I_logger* logger){
 
   _hook_handler->set_logger(logger);
   _execution_flow->set_logger(logger);
-  _function_database->set_logger(logger);
   _library_loader->set_logger(logger);
 }
 

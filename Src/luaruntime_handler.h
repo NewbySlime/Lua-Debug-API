@@ -27,8 +27,11 @@ namespace lua{
       virtual ~I_runtime_handler(){}
 
       virtual void* get_lua_state_interface() = 0;
+      virtual lua::api::core get_lua_core_copy() = 0;
 
-      virtual lua::I_func_db* get_function_database_interface() = 0;
+      // deprecated
+      // virtual lua::I_func_db* get_function_database_interface() = 0;
+      
       virtual lua::debug::I_hook_handler* get_hook_handler_interface() = 0;
       virtual lua::debug::I_execution_flow* get_execution_flow_interface() = 0;
       virtual lua::I_library_loader* get_library_loader_interface() = 0;
@@ -90,8 +93,6 @@ namespace lua{
       lua::debug::hook_handler* _hook_handler = NULL;
       lua::debug::execution_flow* _execution_flow = NULL;
 
-      lua::func_db* _function_database = NULL;
-
       lua::library_loader* _library_loader = NULL;
 
       lua::variant* _last_err_obj = NULL;
@@ -122,13 +123,12 @@ namespace lua{
 
       lua_State* get_lua_state();
       void* get_lua_state_interface() override;
+      lua::api::core get_lua_core_copy() override;
 
-      lua::func_db* get_function_database();
       lua::debug::hook_handler* get_hook_handler();
       lua::debug::execution_flow* get_execution_flow();
       lua::library_loader* get_library_loader();
 
-      lua::I_func_db* get_function_database_interface() override;
       lua::debug::I_hook_handler* get_hook_handler_interface() override;
       lua::debug::I_execution_flow* get_execution_flow_interface() override;
       lua::I_library_loader* get_library_loader_interface() override;

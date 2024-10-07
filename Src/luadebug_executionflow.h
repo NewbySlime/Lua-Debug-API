@@ -6,6 +6,7 @@
 #include "library_linking.h"
 #include "luaincludes.h"
 #include "luadebug_hookhandler.h"
+#include "macro_helper.h"
 
 #include "condition_variable"
 #include "mutex"
@@ -161,5 +162,20 @@ namespace lua::debug{
 
 }
 
+
+#define CPPLUA_CREATE_EXECUTION_FLOW cpplua_create_execution_flow
+#define CPPLUA_CREATE_EXECUTION_FLOW_STR MACRO_TO_STR_EXP(CPPLUA_CREATE_EXECUTION_FLOW)
+
+#define CPPLUA_DELETE_EXECUTION_FLOW cpplua_delete_execution_flow
+#define CPPLUA_DELETE_EXECUTION_FLOW_STR MACRO_TO_STR_EXP(CPPLUA_DELETE_EXECUTION_FLOW)
+
+
+typedef lua::debug::I_execution_flow* (__stdcall *ef_crerate_func)(void* istate);
+typedef void (__stdcall *ef_delete_func)(lua::debug::I_execution_flow* object);
+
+#ifdef LUA_CODE_EXISTS
+DLLEXPORT lua::debug::I_execution_flow* CPPLUA_CREATE_EXECUTION_FLOW(void* istate);
+DLLEXPORT void CPPLUA_DELETE_EXECUTION_FLOW(lua::debug::I_execution_flow* object);
+#endif // LUA_CODE_EXISTS
 
 #endif

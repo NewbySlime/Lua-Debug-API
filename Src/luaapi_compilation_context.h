@@ -11,6 +11,7 @@ namespace lua::api{
   class I_internal;
   class I_memory;
   class I_object_util;
+  class I_runtime;
   class I_stack;
   class I_state;
   class I_util;
@@ -20,7 +21,7 @@ namespace lua::api{
   
   struct compilation_context{
 #ifdef LUA_CODE_EXISTS
-    compilation_context(I_debug* debug, I_execution* execution, I_internal* internal, I_memory* memory, I_object_util* objutil, I_stack* stack, I_state* state, I_util* util, I_value* value, I_table_util* tableutil, I_variant_util* varutil);
+    compilation_context(I_debug* debug, I_execution* execution, I_internal* internal, I_memory* memory, I_object_util* objutil, I_runtime* runtime, I_stack* stack, I_state* state, I_util* util, I_value* value, I_table_util* tableutil, I_variant_util* varutil);
 #endif // LUA_CODE_EXISTS
 
     I_debug* api_debug;
@@ -28,6 +29,7 @@ namespace lua::api{
     I_internal* api_internal;
     I_memory* api_memory;
     I_object_util* api_objutil;
+    I_runtime* api_runtime;
     I_stack* api_stack;
     I_state* api_state;
     I_util* api_util;

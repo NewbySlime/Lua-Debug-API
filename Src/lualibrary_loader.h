@@ -26,6 +26,8 @@ namespace lua{
 
       static void _set_attached_object(lua_State* state, library_loader* object);
 
+      static std::string _get_reference_key(void* pointer);
+
     public:
       library_loader(lua_State* state);
       ~library_loader();
@@ -41,5 +43,20 @@ namespace lua{
 #endif // LUA_CODE_EXISTS
 
 }
+
+
+#define CPPLUA_CREATE_LIBRARY_LOADER cpplua_create_library_loader
+#define CPPLUA_CREATE_LIBRARY_LOADER_STR MACRO_TO_STR_EXP(CPPLUA_CREATE_LIBRARY_LOADER)
+
+#define CPPLUA_DELETE_LIBRARY_LOADER cpplua_delete_library_loader
+#define CPPLUA_DELETE_LIBRARY_LOADER_STR MACRO_TO_STR_EXP(CPPLUA_DELETE_LIBRARY_LOADER)
+
+typedef lua::I_library_loader* (__stdcall *ll_create_func)(void* istate);
+typedef void (__stdcall *ll_delete_func)(lua::I_library_loader* object);
+
+#ifdef LUA_CODE_EXISTS
+DLLEXPORT lua::I_library_loader* CPPLUA_CREATE_LIBRARY_LOADER(void* istate);
+DLLEXPORT void CPPLUA_DELETE_LIBRARY_LOADER(lua::I_library_loader* object);
+#endif // LUA_CODE_EXISTS
 
 #endif

@@ -1,7 +1,9 @@
 #ifndef LUAAPI_TABLE_UTIL_HEADER
 #define LUAAPI_TABLE_UTIL_HEADER
 
+#include "library_linking.h"
 #include "luatable_util.h"
+#include "macro_helper.h"
 
 
 namespace lua::api{
@@ -16,7 +18,7 @@ namespace lua::api{
 
 
 #define CPPLUA_GET_API_TABLE_UTIL_DEFINITION cpplua_get_api_table_util_definition
-#define CPPLUA_GET_API_TABLE_UTIL_DEFINITION_STR MACRO_TO_STR_EXP(CPPLUA_GET_API_STACK_DEFINITION)
+#define CPPLUA_GET_API_TABLE_UTIL_DEFINITION_STR MACRO_TO_STR_EXP(CPPLUA_GET_API_TABLE_UTIL_DEFINITION)
 
 typedef lua::api::I_table_util* (__stdcall *get_api_table_util_func)();
 

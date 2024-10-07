@@ -41,7 +41,9 @@ namespace lua{
   int get_special_type(lua_State* state, int stack_idx);
 
   void set_global(lua_State* state, const char* global_name, I_variant* var);
+  
 #endif // LUA_CODE_EXISTS
+
 }
 
 #endif

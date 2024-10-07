@@ -1,7 +1,8 @@
+#include "luainternal_storage.h"
 #include "luavariant.h"
 #include "luavariant_util.h"
 #include "luaglobal_print_override.h"
-#include "stdlogger.h"
+#include "std_logger.h"
 #include "string_util.h"
 
 #define LUD_PRINT_OVERRIDE_VAR_NAME "__clua_print_override"
@@ -13,6 +14,7 @@
 
 using namespace lua;
 using namespace lua::global;
+using namespace lua::internal;
 
 
 #ifdef LUA_CODE_EXISTS
@@ -21,7 +23,7 @@ using namespace lua::global;
 
 print_override::print_override(lua_State* state){
   _this_state = NULL;
-  _logger = get_stdlogger();
+  _logger = get_std_logger();
 
 #if (_WIN64) || (_WIN32)
   _pipe_read = NULL;
@@ -70,8 +72,14 @@ void print_override::_bind_global_function(){
 
 
 void print_override::_set_bind_obj(print_override* obj, lua_State* state){
-  lightuser_var _lud_var = obj;
-  set_global(state, LUD_PRINT_OVERRIDE_VAR_NAME, &_lud_var);
+  require_internal_storage(state); // s+1
+
+  lua_pushstring(state, LUD_PRINT_OVERRIDE_VAR_NAME); // s+1
+  lua_pushlightuserdata(state, obj); // s+1
+  lua_settable(state, -3); // s-2
+
+  // pop internal storage
+  lua_pop(state, 1); // s+1
 }
 
 int print_override::_on_print_static(lua_State* state){
@@ -114,11 +122,16 @@ int print_override::_on_print_static(lua_State* state){
 
 
 print_override* print_override::get_attached_object(lua_State* state){
-  variant* _lud_var = to_variant_fglobal(state, LUD_PRINT_OVERRIDE_VAR_NAME);
-  print_override* _result =
-    (print_override*)(_lud_var->get_type() == lightuser_var::get_static_lua_type()? ((lightuser_var*)_lud_var)->get_data(): NULL);
+  print_override* _result = NULL;
+  require_internal_storage(state); // s+1
 
-  delete _lud_var;
+  lua_pushstring(state, LUD_PRINT_OVERRIDE_VAR_NAME); // s+1
+  lua_gettable(state, -2); // s-1+1
+  if(lua_type(state, -1) == LUA_TLIGHTUSERDATA)
+    _result = (print_override*)lua_touserdata(state, -1);
+
+  // pop internal storage and gettable result
+  lua_pop(state, 2); // s-2
   return _result;
 }
 

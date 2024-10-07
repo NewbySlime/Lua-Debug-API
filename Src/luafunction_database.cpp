@@ -1,11 +1,13 @@
 #include "luafunction_database.h"
 #include "luautility.h"
 #include "luavariant_util.h"
-#include "stdlogger.h"
+#include "std_logger.h"
 
 #include "cstring"
 
 #define LUD_FUNCDB_VARNAME "__clua_function_database"
+
+// MARK: deprecated
 
 
 using namespace lua;
@@ -19,7 +21,7 @@ using namespace lua::utility;
 // MARK: lua::func_db
 func_db::func_db(lua_State* state){
   _this_state = NULL;
-  _current_logger = get_stdlogger();
+  _current_logger = get_std_logger();
 
   func_db* _check_db = get_state_db(state);
   if(_check_db && _check_db != this){
@@ -294,6 +296,18 @@ bool func_db::call_lua_function_nonstrict(const char* function_name, const lua::
   on_skip_label:{
     lua_pop(_this_state, 1);
   return false;}
+}
+
+
+
+// MARK: DLL definitions
+
+DLLEXPORT lua::I_func_db* CPPLUA_CREATE_FUNCTION_DATABASE(void* istate){
+  return new func_db((lua_State*)istate);
+}
+
+DLLEXPORT void CPPLUA_DELETE_FUNCTION_DATABASE(lua::I_func_db* database){
+  delete database;
 }
 
 #endif // LUA_CODE_EXISTS

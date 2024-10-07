@@ -17,13 +17,13 @@ namespace lua::api{
 
 // MARK: DLL functions
 
-#define CPPLUA_GET_API_OBJECT_UTIL_DEFINIITON cpplua_get_api_object_util_definition
-#define CPPLUA_GET_API_OBJECT_UTIL_DEFINIITON_STR MACRO_TO_STR_EXP(CPPLUA_GET_API_OBJECT_UTIL_DEFINITION)
+#define CPPLUA_GET_API_OBJECT_UTIL_DEFINITION cpplua_get_api_object_util_definition
+#define CPPLUA_GET_API_OBJECT_UTIL_DEFINITION_STR MACRO_TO_STR_EXP(CPPLUA_GET_API_OBJECT_UTIL_DEFINITION)
 
 typedef lua::api::I_object_util* (__stdcall *get_api_object_util_func)();
 
 #ifdef LUA_CODE_EXISTS
-DLLEXPORT lua::api::I_object_util* CPPLUA_GET_API_OBJECT_UTIL_DEFINIITON();
+DLLEXPORT lua::api::I_object_util* CPPLUA_GET_API_OBJECT_UTIL_DEFINITION();
 #endif // LUA_CODE_EXISTS
 
 #endif

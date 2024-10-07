@@ -1,7 +1,8 @@
+#include "luainternal_storage.h"
 #include "luavariant.h"
 #include "luavariant_util.h"
 #include "luadebug_hookhandler.h"
-#include "stdlogger.h"
+#include "std_logger.h"
 #include "string_util.h"
 
 #define LUD_HOOK_VAR_NAME "__clua_hook_handler"
@@ -9,6 +10,7 @@
 
 using namespace lua;
 using namespace lua::debug;
+using namespace lua::internal;
 
 #define LUA_MAX_MASK_COUNT (LUA_HOOKCOUNT + 1)
 
@@ -21,7 +23,7 @@ hook_handler::hook_handler(lua_State* state, int count){
 
   this->count = count;
 
-  _logger = get_stdlogger();
+  _logger = get_std_logger();
 
   hook_handler* _this = get_this_attached(state);
   if(_this && _this != this){
@@ -30,17 +32,14 @@ hook_handler::hook_handler(lua_State* state, int count){
   }
 
   _this_state = state;
-  lightuser_var _lud_var = this;
-  set_global(_this_state, LUD_HOOK_VAR_NAME, &_lud_var);
+  _set_bind_obj(_this_state, this);
 
   _update_hook_config();
 }
 
 hook_handler::~hook_handler(){
-  if(_this_state){
-    nil_var _lud_var;
-    set_global(_this_state, LUD_HOOK_VAR_NAME, &_lud_var);
-  }
+  if(_this_state)
+    _set_bind_obj(_this_state, NULL);
 }
 
 
@@ -87,6 +86,18 @@ void hook_handler::_on_hook_event(lua_State* state, lua_Debug* dbg){
 }
 
 
+void hook_handler::_set_bind_obj(lua_State* state, hook_handler* obj){
+  require_internal_storage(state); // s+1
+
+  lua_pushstring(state, LUD_HOOK_VAR_NAME); // s+1
+  lua_pushlightuserdata(state, obj); // s+1
+  lua_settable(state, -3); // s-2
+
+  // pop internal storage
+  lua_pop(state, 1); // s-1
+}
+
+
 void hook_handler::_on_hook_event_static(lua_State* state, lua_Debug* dbg){
   hook_handler* _this = get_this_attached(state);
   if(!_this)
@@ -97,11 +108,16 @@ void hook_handler::_on_hook_event_static(lua_State* state, lua_Debug* dbg){
 
 
 hook_handler* hook_handler::get_this_attached(lua_State* state){
-  variant* _lud_var = to_variant_fglobal(state, LUD_HOOK_VAR_NAME);
-  hook_handler* _result = 
-    (hook_handler*)(_lud_var->get_type() == lightuser_var::get_static_lua_type()? ((lightuser_var*)_lud_var)->get_data(): NULL);
-  
-  delete _lud_var;
+  hook_handler* _result = NULL;
+  require_internal_storage(state); // s+1
+
+  lua_pushstring(state, LUD_HOOK_VAR_NAME); // s+1
+  lua_gettable(state, -2); // s-1+1
+  if(lua_type(state, -1) == LUA_TLIGHTUSERDATA)
+    _result = (hook_handler*)lua_touserdata(state, -1);
+
+  // pop internal storage and gettable result
+  lua_pop(state, 2);
   return _result;
 }
 
@@ -178,6 +194,18 @@ const lua_Debug* hook_handler::get_current_debug_value() const{
 
 void hook_handler::set_logger(I_logger* logger){
   _logger = logger;
+}
+
+
+
+// MARK: DLL definitions
+
+DLLEXPORT lua::debug::I_hook_handler* CPPLUA_CREATE_HOOK_HANDLER(void* istate, int count){
+  return new hook_handler((lua_State*)istate, count);
+}
+
+DLLEXPORT void CPPLUA_DELETE_HOOK_HANDLER(lua::debug::I_hook_handler* object){
+  delete object;
 }
 
 #endif // LUA_CODE_EXISTS
