@@ -12,6 +12,7 @@ namespace lua::api{
       virtual void close(void* istate) = 0;
       virtual int load(void* istate, lua_Reader reader, void* data, const char* chunkname, const char* mode) = 0;
       virtual void* newstate(lua_Alloc f, void* ud) = 0;
+      virtual void* newstate() = 0;
   };
 }
 

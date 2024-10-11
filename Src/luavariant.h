@@ -507,6 +507,7 @@ namespace lua{
       virtual bool is_luafunction() const = 0;
       virtual bool is_reference() const = 0;
 
+      // This uses lua_pcall so when an error thrown, returned integer will be an error code (not a LUA_OK). The error object thrown by Lua will be put in results as the first result.
       virtual int run_function(const lua::api::core* lua_core, const I_vararr* args, I_vararr* results) const = 0;
 
       virtual void as_copy() = 0;

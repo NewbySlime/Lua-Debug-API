@@ -170,6 +170,7 @@ static const fdata _io_handler_fdata[] = {
   string_var _fname = fname; \
   const I_function_var* _fvar = dynamic_cast<const I_function_var*>(table_obj->get_value(_fname)); \
   _fvar->run_function(&_this->_lc, args, res); \
+  _this->_copy_error_from(res); \
   /* delete result from table_var */ \
   _this->_filein_def->get_lua_core()->context->api_varutil->delete_variant(_fvar); \
   
@@ -196,9 +197,9 @@ static void _def_iohandler_destructor(I_object* obj){
 io_handler::io_handler(const lua::api::core* lc, const constructor_param* param): function_store(_def_iohandler_destructor){
   set_function_data(_io_handler_fdata);
 
-  file_handler* _stdout = NULL;
-  file_handler* _stdin = NULL;
-  file_handler* _stderr = NULL;
+  I_file_handler* _stdout = NULL;
+  I_file_handler* _stdin = NULL;
+  I_file_handler* _stderr = NULL;
   if(param){
     _stdout = param->stdout_file;
     _stdin = param->stdin_file;
@@ -274,6 +275,23 @@ void io_handler::_copy_error_from(file_handler* file){
   _last_error = new error_var(file->get_last_error());
 }
 
+void io_handler::_copy_error_from(const I_vararr* data){
+  if(!_has_error(data))
+    return;
+
+  _clear_error();
+  string_store _errmsg;
+  data->get_var(1)->to_string(&_errmsg);
+  _set_last_error(-1, _errmsg.data);
+}
+
+bool io_handler::_has_error(const I_vararr* data){
+  if(data->get_var_count() < 2)
+    return false;
+
+  return data->get_var(0)->get_type() == I_nil_var::get_static_lua_type();
+}
+
 #if (_WIN64) || (_WIN32)
 void io_handler::_update_last_error_winapi(){
   DWORD _errcode = GetLastError();
@@ -321,6 +339,7 @@ void io_handler::close(I_object* obj, const I_vararr* args, I_vararr* res){
 
           vararr _args;
           vararr _res;
+
           _fvar->run_function(_itvar->get_lua_core(), &_args, &_res);
 
           res->clear();
@@ -328,11 +347,13 @@ void io_handler::close(I_object* obj, const I_vararr* args, I_vararr* res){
 
           // delete result from table_var
           _itvar->get_lua_core()->context->api_varutil->delete_variant(_fvar);
+
+          if(_this->_has_error(res))
+            _this->_copy_error_from(res);
         }
 
         break; default:{
           _this->_set_last_error(ERROR_BAD_ARGUMENTS, "Argument #1: Not a file handle; wrong type.");
-          goto on_error;
         }
       }
     }
@@ -512,10 +533,19 @@ void io_handler::lines(I_object* obj, const I_vararr* args, I_vararr* res){
   // no way that the function could fail
   const I_function_var* _func = dynamic_cast<const I_function_var*>(_target_obj.get_value(_fname));
   res->clear();
-  _func->run_function(_target_obj.get_lua_core(), &_farg, res);
+
+  int _errcode = _func->run_function(_target_obj.get_lua_core(), &_farg, res);
   
   // delete result from table_var
   _target_obj.get_lua_core()->context->api_varutil->delete_variant(_func);
+
+  if(_errcode != LUA_OK){
+    string_store _errmsg;
+    if(res->get_var_count() >= 1)
+      res->get_var(0)->to_string(&_errmsg);
+
+    _this->_set_last_error(_errcode, _errmsg.data);
+  }
 
 } // enclosure closing
 
@@ -586,15 +616,10 @@ void io_handler::type(I_object* obj, const I_vararr* args, I_vararr* res){
     vararr _fres;
 
     _fvar->run_function(&_this->_lc, &_farg, &_fres);
-    if(_fres.get_var_count() >= 1){
-      const I_variant* _tmpvar = _fres.get_var(0);
-      if(_tmpvar->get_type() == I_nil_var::get_static_lua_type()) // is nil | is error
-        res->append_var(&_case_closed);
-      else
-        res->append_var(&_case_normal);
-    }
-    else
+    if(_this->_has_error(&_fres))
       res->append_var(&_case_closed);
+    else
+      res->append_var(&_case_normal);
   
     _tvar->get_lua_core()->context->api_varutil->delete_variant(_fvar);
   }
@@ -638,15 +663,13 @@ void io_handler::close(){
 
     vararr _fargs;
     vararr _fres;
+
     _fvar->run_function(&_lc, &_fargs, &_fres);
 
-    if(_fres.get_var_count() >= 2){ // check if returns an error data
-      const I_variant* _check_var = _fres.get_var(1);
-      if(_check_var->get_type() == I_string_var::get_static_lua_type())
-        _set_last_error(-1, dynamic_cast<const I_string_var*>(_check_var)->get_string());
-    }
-
     _fileout_def->get_lua_core()->context->api_varutil->delete_variant(_fvar);
+
+    if(_has_error(&_fres)) // check if returns an error data
+      _copy_error_from(&_fres);
   }
 }
 
@@ -662,11 +685,8 @@ void io_handler::flush(){
   _fvar->run_function(&_lc, &_fargs, &_fres);
   _fileout_def->get_lua_core()->context->api_varutil->delete_variant(_fvar);
 
-  if(_fres.get_var_count() >= 2){ // check if returns an error data
-    const I_variant* _check_var = _fres.get_var(1);
-    if(_check_var->get_type() == I_string_var::get_static_lua_type())
-      _set_last_error(-1, dynamic_cast<const I_string_var*>(_check_var)->get_string());
-  }
+  if(_has_error(&_fres)) // check if returns an error data
+    _copy_error_from(&_fres);
 
   _fres.clear();
   
@@ -675,23 +695,20 @@ void io_handler::flush(){
   _fvar->run_function(&_lc, &_fargs, &_fres);
   _fileerr_def->get_lua_core()->context->api_varutil->delete_variant(_fvar);
   
-  if(_fres.get_var_count() >= 2){ // check if returns an error data
-    const I_variant* _check_var = _fres.get_var(1);
-    if(_check_var->get_type() == I_string_var::get_static_lua_type())
-      _set_last_error(-1, dynamic_cast<const I_string_var*>(_check_var)->get_string());
-  }
+  if(_has_error(&_fres)) // check if returns an error data
+    _copy_error_from(&_fres);
 }
 
 
-bool io_handler::set_input_file(file_handler* file){
+bool io_handler::set_input_file(I_file_handler* file){
   IO_HANDLER_SET_FILE(file, _filein_def)
 }
 
-bool io_handler::set_output_file(file_handler* file){
+bool io_handler::set_output_file(I_file_handler* file){
   IO_HANDLER_SET_FILE(file, _fileout_def)
 }
 
-bool io_handler::set_error_file(file_handler* file){
+bool io_handler::set_error_file(I_file_handler* file){
   IO_HANDLER_SET_FILE(file, _fileerr_def)
 }
 
@@ -738,11 +755,8 @@ size_t io_handler::read(char* buffer, size_t buffer_size){
     _read_idx += _res_str->get_length();
   }
 
-  if(_fres.get_var_count() >= 2){ // check if the function returns an error data
-    const I_variant* _check_var = _fres.get_var(1);
-    if(_check_var->get_type() == I_string_var::get_static_lua_type())
-      _set_last_error(-1, dynamic_cast<const I_string_var*>(_check_var)->get_string());
-  }
+  if(_has_error(&_fres)) // check if the function returns an error data
+    _copy_error_from(&_fres);
 
   _filein_def->get_lua_core()->context->api_varutil->delete_variant(_fvar);
 
@@ -818,11 +832,8 @@ size_t io_handler::write(const char* buffer, size_t buffer_size){
 
   skip_to_return:{}
 
-  if(_fres.get_var_count() >= 2){ // check if previous function returns an error data
-    const I_variant* _check_var = _fres.get_var(1);
-    if(_check_var->get_type() == I_string_var::get_static_lua_type())
-      _set_last_error(-1, dynamic_cast<const I_string_var*>(_check_var)->get_string());
-  }
+  if(_has_error(&_fres)) // check if previous function returns an error data
+    _copy_error_from(&_fres);
   
   _fileout_def->get_lua_core()->context->api_varutil->delete_variant(_fvar_write);
   _fileout_def->get_lua_core()->context->api_varutil->delete_variant(_fvar_seek);
@@ -1872,5 +1883,30 @@ void file_handler::on_object_added(const core* lc){
   // Reset the lua_core to make sure to use this compilation context.
   _lc = *lc;
 }
+
+
+DLLEXPORT lua::library::I_io_handler* CPPLUA_LIBRARY_CREATE_IO_HANDLER(const lua::library::io_handler_api_constructor_data* data){
+  return new io_handler(data->lua_core, data->param);
+}
+
+DLLEXPORT void CPPLUA_LIBRARY_DELETE_IO_HANDLER(lua::library::I_io_handler* handler){
+  delete handler;
+}
+
+
+DLLEXPORT lua::library::I_file_handler* CPPLUA_LIBRARY_CREATE_FILE_HANDLER(const lua::library::file_handler_api_constructor_data* data){
+  if(!data->use_pipe)
+    return new file_handler(data->lua_core, data->path, data->open_mode);
+  else{
+#if (_WIN64) || (_WIN32)
+    return new file_handler(data->lua_core, data->pipe_handle, data->is_output);
+#endif
+  }
+}
+
+DLLEXPORT void CPPLUA_LIBRARY_DELETE_FILE_HANDLER(lua::library::I_file_handler* handler){
+  delete handler;
+}
+
 
 #endif // LUA_CODE_EXISTS

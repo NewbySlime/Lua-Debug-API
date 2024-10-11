@@ -1,9 +1,11 @@
 #ifndef LUALIBRARY_IOHANDLER_HEADER
 #define LUALIBRARY_IOHANDLER_HEADER
 
+#include "library_linking.h"
 #include "luaI_object.h"
 #include "luaobject_util.h"
 #include "luavariant.h"
+#include "macro_helper.h"
 #include "stdio.h"
 
 #if (_WIN64) || (_WIN32)
@@ -16,23 +18,45 @@
 
 
 namespace lua::library{
-  class file_handler;
+  class I_file_handler;
 
 
   // MARK: io_handler
 
-  class io_handler: public lua::object::function_store, virtual public I_object{
+  class I_io_handler: virtual public I_object{
     public:
       struct constructor_param{
         // Custom standard files. Can be NULL to let the IO to revert to default C/C++ Standard IO.
         // Object (memory) management shouldn't be managed by any user code, it should be handled by Lua's garbage collector.
         // But the destruction of the object must be handled by the user code by registering the destructor function to the object.
 
-        file_handler* stdout_file;
-        file_handler* stdin_file;
-        file_handler* stderr_file;
+        I_file_handler* stdout_file;
+        I_file_handler* stdin_file;
+        I_file_handler* stderr_file;
       };
 
+      virtual const lua::I_error_var* get_last_error() const = 0;
+
+      virtual void close() = 0;
+      virtual void flush() = 0;
+
+      virtual bool set_input_file(I_file_handler* file) = 0;
+      virtual bool set_output_file(I_file_handler* file) = 0;
+      virtual bool set_error_file(I_file_handler* file) = 0;
+
+      virtual const lua::I_table_var* get_input_file() const = 0;
+      virtual const lua::I_table_var* get_output_file() const = 0;
+      virtual const lua::I_table_var* get_error_file() const = 0;
+
+      virtual size_t read(char* buffer, size_t buffer_size) = 0;
+      virtual size_t read(I_string_store* pstr, size_t read_len) = 0;
+      virtual size_t write(const char* buffer, size_t buffer_size) = 0;
+
+  };
+
+#ifdef LUA_CODE_EXISTS
+  class io_handler: public I_io_handler, public lua::object::function_store, virtual public I_object{
+    private:
       lua::api::core _lc;
 
       lua::object_var* _stdout_object;
@@ -53,6 +77,9 @@ namespace lua::library{
       void _clear_error();
       void _set_last_error(long long err_code, const std::string& err_msg);
       void _copy_error_from(file_handler* file);
+      // ignore copying when first data is not a nil value
+      void _copy_error_from(const I_vararr* data);
+      bool _has_error(const I_vararr* data);
 #if (_WIN64) || (_WIN32)
       void _update_last_error_winapi();
 #endif
@@ -63,7 +90,7 @@ namespace lua::library{
       io_handler(const lua::api::core* lua_core, const constructor_param* param = NULL);
       ~io_handler();
 
-      const I_error_var* get_last_error() const;
+      const lua::I_error_var* get_last_error() const override;
 
       static void close(lua::I_object* obj, const lua::I_vararr* args, lua::I_vararr* res);
       static void flush(lua::I_object* obj, const lua::I_vararr* args, lua::I_vararr* res);
@@ -79,33 +106,35 @@ namespace lua::library{
       static void write(lua::I_object* obj, const lua::I_vararr* args, lua::I_vararr* res);
 
       // Closes output default file, will be ignored if the default output is a std output used by this IO handler.
-      void close();
+      void close() override;
       // Flushes output and error default and/or std files.
-      void flush();
+      void flush() override;
 
-      bool set_input_file(file_handler* file);
-      bool set_output_file(file_handler* file);
-      bool set_error_file(file_handler* file);
+      bool set_input_file(I_file_handler* file) override;
+      bool set_output_file(I_file_handler* file) override;
+      bool set_error_file(I_file_handler* file) override;
 
       // Returns a representation of file_handler in a Lua object.
-      const I_table_var* get_input_file() const;
+      const lua::I_table_var* get_input_file() const override;
       // Returns a representation of file_handler in a Lua object.
-      const I_table_var* get_output_file() const;
+      const lua::I_table_var* get_output_file() const override;
       // Returns a representation of file_handler in a Lua object.
-      const I_table_var* get_error_file() const;
+      const lua::I_table_var* get_error_file() const override;
 
-      size_t read(char* buffer, size_t buffer_size);
-      size_t read(I_string_store* pstr, size_t read_len);
-      size_t write(const char* buffer, size_t buffer_size);
+      size_t read(char* buffer, size_t buffer_size) override;
+      size_t read(I_string_store* pstr, size_t read_len) override;
+      size_t write(const char* buffer, size_t buffer_size) override;
 
       lua::I_debuggable_object* as_debug_object() override;
       void on_object_added(const lua::api::core* lua_core) override;
+
   };
+#endif // LUA_CODE_EXISTS
 
 
   // MARK: file_handler
 
-  class file_handler: public lua::object::function_store, virtual public I_object, virtual public I_debuggable_object{
+  class I_file_handler: virtual public I_object{
     public:
       enum open_op{
         open_read             = 0b0000000,
@@ -138,6 +167,27 @@ namespace lua::library{
       };
 
 
+      virtual const lua::I_error_var* get_last_error() const = 0;
+
+      virtual bool close() = 0;
+      virtual bool flush() = 0;
+      virtual char peek() = 0;
+      virtual long seek(seek_opt opt, long offset) = 0;
+      virtual size_t read(char* buffer, size_t buffer_size) = 0;
+      virtual size_t write(const char* buffer, size_t buffer_size) = 0;
+      virtual void set_buffering_mode(buffering_mode mode) = 0;
+
+      virtual bool already_closed() const = 0;
+      virtual bool end_of_file_reached() const = 0;
+      virtual size_t get_remaining_read() const = 0;
+
+      virtual bool can_write() const = 0;
+      virtual bool can_read() const = 0;
+       
+  };
+
+#ifdef LUA_CODE_EXISTS
+  class file_handler: public I_file_handler, public lua::object::function_store, virtual public I_object, virtual public I_debuggable_object{
     private:
       int _op_code;
 
@@ -201,7 +251,7 @@ namespace lua::library{
 #endif
       ~file_handler();
 
-      const lua::I_error_var* get_last_error() const;
+      const lua::I_error_var* get_last_error() const override;
 
       static bool check_object_validity(const I_table_var* tvar);
 
@@ -213,24 +263,74 @@ namespace lua::library{
       static void setvbuf(lua::I_object* obj, const lua::I_vararr* args, lua::I_vararr* res);
       static void write(lua::I_object* obj, const lua::I_vararr* args, lua::I_vararr* res);
 
-      bool close();
-      bool flush();
-      char peek();
-      long seek(seek_opt opt, long offset);
-      size_t read(char* buffer, size_t buffer_size);
-      size_t write(const char* buffer, size_t buffer_size);
-      void set_buffering_mode(buffering_mode mode);
+      bool close() override;
+      bool flush() override;
+      char peek() override;
+      long seek(seek_opt opt, long offset) override;
+      size_t read(char* buffer, size_t buffer_size) override;
+      size_t write(const char* buffer, size_t buffer_size) override;
+      void set_buffering_mode(buffering_mode mode) override;
 
-      bool already_closed() const;
-      bool end_of_file_reached() const;
-      size_t get_remaining_read() const;
+      bool already_closed() const override;
+      bool end_of_file_reached() const override;
+      size_t get_remaining_read() const override;
 
-      bool can_write() const;
-      bool can_read() const;
+      bool can_write() const override;
+      bool can_read() const override;
 
       lua::I_debuggable_object* as_debug_object() override;
       void on_object_added(const lua::api::core* lua_core) override;
+
   };
+
+  
+  struct io_handler_api_constructor_data{
+    const lua::api::core* lua_core;
+    const io_handler::constructor_param* param = NULL;
+  };
+
+  struct file_handler_api_constructor_data{
+    const lua::api::core* lua_core;
+
+    bool use_pipe = false;
+
+    const char* path;
+    int open_mode = file_handler::open_read;
+
+#if (_WIN32) || (_WIN64)
+    HANDLE pipe_handle;
+    bool is_output = true;
+#endif
+  };
+#endif // LUA_CODE_EXISTS
+
 }
+
+
+#define CPPLUA_LIBRARY_CREATE_IO_HANDLER cpplua_library_create_io_handler
+#define CPPLUA_LIBRARY_CREATE_IO_HANDLER_STR MACRO_TO_STR_EXP(CPPLUA_LIBRARY_CREATE_IO_HANDLER)
+
+#define CPPLUA_LIBRARY_DELETE_IO_HANDLER cpplua_library_delete_io_handler
+#define CPPLUA_LIBRARY_DELETE_IO_HANDLER_STR MACRO_TO_STR_EXP(CPPLUA_LIBRARY_DELETE_IO_HANDLER)
+
+#define CPPLUA_LIBRARY_CREATE_FILE_HANDLER cpplua_library_create_file_handler
+#define CPPLUA_LIBRARY_CREATE_FILE_HANDLER_STR MACRO_TO_STR_EXP(CPPLUA_LIBRARY_CREATE_FILE_HANDLER)
+
+#define CPPLUA_LIBRARY_DELETE_FILE_HANDLER cpplua_library_delete_file_handler
+#define CPPLUA_LIBRARY_DELETE_FILE_HANDLER_STR MACRO_TO_STR_EXP(CPPLUA_LIBRARY_DELETE_FILE_HANDLER)
+
+typedef lua::library::I_io_handler* (__stdcall *create_library_io_handler_func)(const lua::library::io_handler_api_constructor_data* data);
+typedef void (__stdcall *delete_library_io_handler_func)(lua::library::I_io_handler* handler);
+
+typedef lua::library::I_file_handler* (__stdcall *create_library_file_handler_func)(const lua::library::file_handler_api_constructor_data* data);
+typedef void (__stdcall *delete_library_file_handler_func)(lua::library::I_file_handler* handler);
+
+#ifdef LUA_CODE_EXISTS
+DLLEXPORT lua::library::I_io_handler* CPPLUA_LIBRARY_CREATE_IO_HANDLER(const lua::library::io_handler_api_constructor_data* data);
+DLLEXPORT void CPPLUA_LIBRARY_DELETE_IO_HANDLER(lua::library::I_io_handler* handler);
+
+DLLEXPORT lua::library::I_file_handler* CPPLUA_LIBRARY_CREATE_FILE_HANDLER(const lua::library::file_handler_api_constructor_data* data);
+DLLEXPORT void CPPLUA_LIBRARY_DELETE_FILE_HANDLER(lua::library::I_file_handler* handler);
+#endif // LUA_CODE_EXISTS
 
 #endif

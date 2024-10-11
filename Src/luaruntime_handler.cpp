@@ -1,9 +1,10 @@
 #include "luaapi_core.h"
 #include "luainternal_storage.h"
+#include "luaruntime_handler.h"
+#include "luastate_util.h"
+#include "luautility.h"
 #include "luavariant.h"
 #include "luavariant_util.h"
-#include "luaruntime_handler.h"
-#include "luautility.h"
 #include "std_logger.h"
 
 #define LUD_RUNTIME_HANDLER_VAR_NAME "__clua_runtime_handler"
@@ -130,7 +131,7 @@ void runtime_handler::_initiate_constructor(){
   _create_own_lua_state = true;
   
   _logger = get_std_logger();
-  _state = luaL_newstate();
+  _state = newstate();
 
 #if (_WIN64) || (_WIN32)
   _thread_handle = NULL;
