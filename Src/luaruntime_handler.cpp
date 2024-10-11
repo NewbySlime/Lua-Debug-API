@@ -1,5 +1,6 @@
 #include "luaapi_core.h"
 #include "luainternal_storage.h"
+#include "luamemory_util.h"
 #include "luaruntime_handler.h"
 #include "luastate_util.h"
 #include "luautility.h"
@@ -15,13 +16,17 @@ using namespace lua;
 using namespace lua::api;
 using namespace lua::debug;
 using namespace lua::internal;
+using namespace lua::memory;
 using namespace lua::utility;
+using namespace ::memory;
 
 
 #ifdef LUA_CODE_EXISTS
 
-// MARK: lua::runtime_handler
+static const dynamic_management* __dm = get_memory_manager();
 
+
+// MARK: lua::runtime_handler
 runtime_handler::runtime_handler(lua_State* state){
   _create_own_lua_state = false;
 
@@ -92,15 +97,15 @@ runtime_handler::~runtime_handler(){
   _hook_handler->remove_hook(this);
   _set_bind_obj(NULL, _state);
 
-  delete _execution_flow;
-  delete _hook_handler;
-  delete _library_loader;
+  __dm->delete_class(_execution_flow);
+  __dm->delete_class(_hook_handler);
+  __dm->delete_class(_library_loader);
 
   if(_create_own_lua_state)
     lua_close(_state);
 
   if(_last_err_obj)
-    delete _last_err_obj;
+    __dm->delete_class(_last_err_obj);
 }
 
 
@@ -109,7 +114,7 @@ void runtime_handler::_deinit_thread(){
   for(auto _event: _event_finished)
     SetEvent(_event);
 
-  delete _thread_data;
+  __dm->delete_class(_thread_data);
   _thread_data = NULL;
 }
 
@@ -139,12 +144,12 @@ void runtime_handler::_initiate_constructor(){
 }
 
 void runtime_handler::_initiate_class(){
-  _hook_handler = new hook_handler(_state);
+  _hook_handler = __dm->new_class<hook_handler>(_state);
   _hook_handler->set_hook(LUA_MASKLINE, _hookcb_static, this);
 
-  _execution_flow = new execution_flow(_state);
+  _execution_flow = __dm->new_class<execution_flow>(_state);
 
-  _library_loader = new library_loader(_state);
+  _library_loader = __dm->new_class<library_loader>(_state);
 
   _set_bind_obj(this, _state);
 }
@@ -296,7 +301,7 @@ bool runtime_handler::run_execution(execution_context cb, void* cbdata){
   stop_execution();
 
 #if (_WIN64) || (_WIN32)
-  _t_entry_point_data* _ep_data = new _t_entry_point_data();
+  _t_entry_point_data* _ep_data = __dm->new_class<_t_entry_point_data>();
   _ep_data->cb = cb;
   _ep_data->cbdata = cbdata;
   _ep_data->_this = this;
@@ -415,13 +420,13 @@ void runtime_handler::set_logger(I_logger* logger){
 
 DLLEXPORT lua::I_runtime_handler* CPPLUA_CREATE_RUNTIME_HANDLER(const char* lua_path, bool immediate_run, bool load_library){
   if(lua_path)
-    return new runtime_handler(lua_path, immediate_run, load_library);
+    return __dm->new_class<runtime_handler>(lua_path, immediate_run, load_library);
   else
-    return new runtime_handler(load_library);
+    return __dm->new_class<runtime_handler>(load_library);
 }
 
 DLLEXPORT void CPPLUA_DELETE_RUNTIME_HANDLER(I_runtime_handler* handler){
-  delete handler;
+  __dm->delete_class(handler);
 }
 
 #endif // LUA_CODE_EXISTS

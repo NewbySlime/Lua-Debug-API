@@ -1,6 +1,7 @@
 #include "luaapi_stack.h"
 #include "luaapi_value.h"
 #include "luaapi_variant_util.h"
+#include "luamemory_util.h"
 #include "luastack_iter.h"
 #include "luautility.h"
 #include "luavariant_util.h"
@@ -9,11 +10,15 @@
 
 using namespace lua;
 using namespace lua::api;
+using namespace lua::memory;
 using namespace lua::utility;
+using namespace ::memory;
 
 
 #define VARIANT_SPECIAL_TYPE_KEY_REG "__clua_special_type"
 
+
+static const dynamic_management* __dm = get_memory_manager();
 
 
 // MARK: to_variant
@@ -24,35 +29,35 @@ variant* lua::to_variant(const core* lc, int stack_idx){
   int _type = lc->context->api_varutil->get_special_type(lc->istate, stack_idx);
   switch(_type){
     break; case number_var::get_static_lua_type():{
-      _result = new number_var(lc, stack_idx);
+      _result = __dm->new_class<number_var>(lc, stack_idx);
     }
 
     break; case string_var::get_static_lua_type():{
-      _result = new string_var(lc, stack_idx);
+      _result = __dm->new_class<string_var>(lc, stack_idx);
     }
 
     break; case bool_var::get_static_lua_type():{
-      _result = new bool_var(lc, stack_idx);
+      _result = __dm->new_class<bool_var>(lc, stack_idx);
     }
 
     break; case table_var::get_static_lua_type():{
-      _result = new table_var(lc, stack_idx);
+      _result = __dm->new_class<table_var>(lc, stack_idx);
     }
 
     break; case lightuser_var::get_static_lua_type():{
-      _result = new lightuser_var(lc, stack_idx);
+      _result = __dm->new_class<lightuser_var>(lc, stack_idx);
     }
 
     break; case function_var::get_static_lua_type():{
-      _result = new function_var(lc, stack_idx);
+      _result = __dm->new_class<function_var>(lc, stack_idx);
     }
 
     break; case object_var::get_static_lua_type():{
-      _result = new object_var(lc, stack_idx);
+      _result = __dm->new_class<object_var>(lc, stack_idx);
     }
 
     break; default:{
-      _result = new variant();
+      _result = __dm->new_class<variant>();
     }
   }
 
@@ -69,7 +74,7 @@ variant* lua::to_variant_fglobal(const core* lc, const char* global_name){
 
 variant* lua::to_variant_ref(const core* lc, int stack_idx){
   const void* _pointer_ref = lc->context->api_value->topointer(lc->istate, stack_idx);
-  string_var* _var_res = new string_var(format_str("p_ref 0x%X", _pointer_ref));
+  string_var* _var_res = __dm->new_class<string_var>(format_str("p_ref 0x%X", _pointer_ref));
 
   return _var_res;
 }

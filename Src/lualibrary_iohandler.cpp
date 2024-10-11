@@ -13,6 +13,7 @@
 #include "string_util.h"
 
 #include "chrono"
+#include "memory"
 #include "set"
 
 
@@ -36,9 +37,14 @@ using namespace lua::api;
 using namespace lua::library;
 using namespace lua::object;
 using namespace lua::utility;
+using namespace ::memory;
 
 
 #ifdef LUA_CODE_EXISTS
+
+static const memory_management_config _def_memman_config(malloc, free);
+static dynamic_management __dm(&_def_memman_config);
+
 
 // MARK: Library DLL variables
 
@@ -50,30 +56,28 @@ destructor_helper _dh_file_handler(_deinitialize_file_handler_static_vars);
 
 static void _initialize_file_handler_static_vars(){
   if(!_seek_keyword_parser){
-    _seek_keyword_parser = new std::map<std::string, file_handler::seek_opt>{
-      {"set", file_handler::seek_begin},
-      {"cur", file_handler::seek_current},
-      {"end", file_handler::seek_end}
-    };
+    _seek_keyword_parser = __dm.new_class<std::map<std::string, file_handler::seek_opt>>();
+      _seek_keyword_parser->insert({"set", file_handler::seek_begin});
+      _seek_keyword_parser->insert({"cur", file_handler::seek_current});
+      _seek_keyword_parser->insert({"end", file_handler::seek_end});
   }
 
   if(!_buffering_keyword_parser){
-    _buffering_keyword_parser = new std::map<std::string, file_handler::buffering_mode>{
-      {"no", file_handler::buffering_none},
-      {"full", file_handler::buffering_full},
-      {"line", file_handler::buffering_line}
-    };
+    _buffering_keyword_parser = __dm.new_class<std::map<std::string, file_handler::buffering_mode>>();
+      _buffering_keyword_parser->insert({"no", file_handler::buffering_none});
+      _buffering_keyword_parser->insert({"full", file_handler::buffering_full});
+      _buffering_keyword_parser->insert({"line", file_handler::buffering_line});
   }
 }
 
 static void _deinitialize_file_handler_static_vars(){
   if(_seek_keyword_parser){
-    delete _seek_keyword_parser;
+    __dm.delete_class(_seek_keyword_parser);
     _seek_keyword_parser = NULL;
   }
 
   if(_buffering_keyword_parser){
-    delete _buffering_keyword_parser;
+    __dm.delete_class(_buffering_keyword_parser);
     _buffering_keyword_parser = NULL;
   }
 }
@@ -130,10 +134,10 @@ static const fdata _io_handler_fdata[] = {
       /* set default input file from file name */ \
       break; case I_string_var::get_static_lua_type():{ \
         const I_string_var* _strvar = dynamic_cast<const I_string_var*>(_check_var); \
-        file_handler* _tmp_obj = new file_handler(&_this->_lc, _strvar->get_string(), file_handler::open_read); \
+        file_handler* _tmp_obj = __dm.new_class<file_handler>(&_this->_lc, _strvar->get_string(), file_handler::open_read); \
         if(_tmp_obj->get_last_error()){ \
           _this->_copy_error_from(_tmp_obj); \
-          delete _tmp_obj; \
+          __dm.delete_class(_tmp_obj); \
            \
           goto on_error; \
         } \
@@ -191,7 +195,7 @@ static const fdata _io_handler_fdata[] = {
 
 
 static void _def_iohandler_destructor(I_object* obj){
-  delete obj;
+  __dm.delete_class(obj);
 }
 
 io_handler::io_handler(const lua::api::core* lc, const constructor_param* param): function_store(_def_iohandler_destructor){
@@ -208,29 +212,29 @@ io_handler::io_handler(const lua::api::core* lc, const constructor_param* param)
 
 #if (_WIN64) || (_WIN32)
   if(!_stdout)
-    _stdout = new file_handler(lc, GetStdHandle(STD_OUTPUT_HANDLE), true);
+    _stdout = __dm.new_class<file_handler>(lc, GetStdHandle(STD_OUTPUT_HANDLE), true);
 
   if(!_stdin)
-    _stdin = new file_handler(lc, GetStdHandle(STD_INPUT_HANDLE), false);
+    _stdin = __dm.new_class<file_handler>(lc, GetStdHandle(STD_INPUT_HANDLE), false);
 
   if(!_stderr)
-    _stderr = new file_handler(lc, GetStdHandle(STD_ERROR_HANDLE), true);
+    _stderr = __dm.new_class<file_handler>(lc, GetStdHandle(STD_ERROR_HANDLE), true);
 #endif
 
-  _stdout_object = new object_var(lc, _stdout);
-  _stdin_object = new object_var(lc, _stdin);
-  _stderr_object = new object_var(lc, _stderr);
+  _stdout_object = __dm.new_class<object_var>(lc, _stdout);
+  _stdin_object = __dm.new_class<object_var>(lc, _stdin);
+  _stderr_object = __dm.new_class<object_var>(lc, _stderr);
 
   _stdout_object->push_to_stack(lc);
-  _fileout_def = new table_var(lc, -1);
+  _fileout_def = __dm.new_class<table_var>(lc, -1);
   lc->context->api_stack->pop(lc->istate, 1);
 
   _stdin_object->push_to_stack(lc);
-  _filein_def = new table_var(lc, -1);
+  _filein_def = __dm.new_class<table_var>(lc, -1);
   lc->context->api_stack->pop(lc->istate, 1);
 
   _stderr_object->push_to_stack(lc);
-  _fileerr_def = new table_var(lc, -1);
+  _fileerr_def = __dm.new_class<table_var>(lc, -1);
   lc->context->api_stack->pop(lc->istate, 1);
 
   _lc = *lc;
@@ -238,20 +242,20 @@ io_handler::io_handler(const lua::api::core* lc, const constructor_param* param)
 
 io_handler::~io_handler(){
   if(_obj_data){
-    delete _obj_data;
+    __dm.delete_class(_obj_data);
     _obj_data = NULL;
   }
 
-  delete _stdout_object;
-  delete _stdin_object;
-  delete _stderr_object;
+  __dm.delete_class(_stdout_object);
+  __dm.delete_class(_stdin_object);
+  __dm.delete_class(_stderr_object);
 
   flush();
   close();
 
-  delete _fileout_def;
-  delete _filein_def;
-  delete _fileerr_def;
+  __dm.delete_class(_fileout_def);
+  __dm.delete_class(_filein_def);
+  __dm.delete_class(_fileerr_def);
   
   _clear_error();
 }
@@ -259,7 +263,7 @@ io_handler::~io_handler(){
 
 void io_handler::_clear_error(){
   if(_last_error){
-    delete _last_error;
+    __dm.delete_class(_last_error);
     _last_error = NULL;
   }
 }
@@ -267,12 +271,12 @@ void io_handler::_clear_error(){
 void io_handler::_set_last_error(long long err_code, const std::string& err_msg){
   _clear_error();
   string_var _str = err_msg;
-  _last_error = new error_var(&_str, err_code);
+  _last_error = __dm.new_class<error_var>(&_str, err_code);
 }
 
 void io_handler::_copy_error_from(file_handler* file){
   _clear_error();
-  _last_error = new error_var(file->get_last_error());
+  _last_error = __dm.new_class<error_var>(file->get_last_error());
 }
 
 void io_handler::_copy_error_from(const I_vararr* data){
@@ -451,10 +455,10 @@ void io_handler::open(I_object* obj, const I_vararr* args, I_vararr* res){
     }
   }
 
-  file_handler* _file = new file_handler(&_this->_lc, _fname_str, _open_mode);
+  file_handler* _file = __dm.new_class<file_handler>(&_this->_lc, _fname_str, _open_mode);
   if(_file->get_last_error()){
     _this->_copy_error_from(_file);
-    delete _file;
+    __dm.delete_class(_file);
 
     goto on_error;
   }
@@ -505,10 +509,10 @@ void io_handler::lines(I_object* obj, const I_vararr* args, I_vararr* res){
       const I_string_var* _file_name = dynamic_cast<const I_string_var*>(_check_var);
 
       // let it leak, let the Lua GC handle it
-      file_handler* _file = new file_handler(&_this->_lc, _file_name->get_string(), file_handler::open_read | file_handler::open_automatic_close);
+      file_handler* _file = __dm.new_class<file_handler>(&_this->_lc, _file_name->get_string(), file_handler::open_read | file_handler::open_automatic_close);
       if(_file->get_last_error()){
         _this->_copy_error_from(_file);
-        delete _file;
+        __dm.delete_class(_file);
 
         goto on_error;
       }
@@ -567,10 +571,10 @@ void io_handler::tmpfile(I_object* obj, const I_vararr* args, I_vararr* res){
   _this->_clear_error();
 
 { // enclosure for using goto
-  file_handler* _file = new file_handler(&_this->_lc, std::string(), file_handler::open_temporary);
+  file_handler* _file = __dm.new_class<file_handler>(&_this->_lc, std::string(), file_handler::open_temporary);
   if(_file->get_last_error()){
     _this->_copy_error_from(_file);
-    delete _file;
+    __dm.delete_class(_file);
     goto on_error;
   }
 
@@ -766,10 +770,10 @@ size_t io_handler::read(char* buffer, size_t buffer_size){
 size_t io_handler::read(I_string_store* pstr, size_t read_len){
   _clear_error();
 
-  char* _tmpbuf = (char*)malloc(read_len);
+  char* _tmpbuf = (char*)__dm.malloc(read_len);
   size_t _read_len = read(_tmpbuf, read_len);
   pstr->append(_tmpbuf, _read_len);
-  free(_tmpbuf);
+  __dm.free(_tmpbuf);
   return _read_len;
 }
 
@@ -846,7 +850,7 @@ I_debuggable_object* io_handler::as_debug_object(){
 }
 
 void io_handler::on_object_added(const core* lc){
-  _obj_data = new table_var(lc, -1);
+  _obj_data = __dm.new_class<table_var>(lc, -1);
   
   string_var _str = IO_HANDLER_STDOUT_VARNAME;
   _obj_data->set_value((I_variant*)&_str, (I_variant*)_stdout_object); // directly casting to not make the compiler upset
@@ -879,7 +883,7 @@ static const fdata _file_handler_fdata[] = {
 
 
 static void _def_fhandler_destructor(I_object* obj){
-  delete obj;
+  __dm.delete_class(obj);
 }
 
 
@@ -989,7 +993,7 @@ void file_handler::_clear_error(){
   if(!_last_error)
     return;
 
-  delete _last_error;
+  __dm.delete_class(_last_error);
   _last_error = NULL;
 }
 
@@ -997,7 +1001,7 @@ void file_handler::_set_last_error(long long err_code, const std::string& err_ms
   _clear_error();
 
   string_var _str = err_msg.c_str();
-  _last_error = new error_var(&_str, err_code);
+  _last_error = __dm.new_class<error_var>(&_str, err_code);
 }
 
 #if (_WIN64) || (_WIN32)
@@ -1012,7 +1016,7 @@ void file_handler::_update_last_error_winapi(){
 void file_handler::_initiate_reference(){
   // metadata table should use reference
   _lc.context->api_value->newtable(_lc.istate);
-  _object_metadata = new table_var(&_lc, -1);
+  _object_metadata = __dm.new_class<table_var>(&_lc, -1);
   _lc.context->api_stack->pop(_lc.istate, 1);
 
   string_var _keystr = FILE_HANDLER_METADATA_OBJECT_POINTER;
@@ -1022,7 +1026,7 @@ void file_handler::_initiate_reference(){
 
 void file_handler::_delete_object_metadata(){
   if(_object_metadata){
-    delete _object_metadata;
+    __dm.delete_class(_object_metadata);
     _object_metadata = NULL;
   }
 }
@@ -1035,7 +1039,7 @@ void file_handler::_delete_object_table(){
   }
 
   if(_object_table){
-    delete _object_table;
+    __dm.delete_class(_object_table);
     _object_table = NULL;
   }
 }
@@ -1172,14 +1176,14 @@ int file_handler::_lua_line_cb(const core* lc){
     lc->context->api_stack->pushvalue(lc->istate, lua_upvalueindex(1)); // get metadata
     if(lc->context->api_value->type(lc->istate, -1) != LUA_TTABLE){
       string_var _errmsg = "Function is not properly setup; Object table is nil.";
-      return new error_var(&_errmsg, -1);
+      return __dm.new_class<error_var>(&_errmsg, -1);
     }
 
     lc->context->api_value->pushstring(lc->istate, FILE_HANDLER_METADATA_OBJECT_POINTER);
     lc->context->api_value->gettable(lc->istate, -2);
     if(lc->context->api_value->type(lc->istate, -1) != LUA_TLIGHTUSERDATA){
       string_var _errmsg = "Object already deleted.";
-      return new error_var(&_errmsg, -1);
+      return __dm.new_class<error_var>(&_errmsg, -1);
     }
 
     (*_pthis) = (file_handler*)lc->context->api_value->touserdata(lc->istate, -1);
@@ -1188,7 +1192,7 @@ int file_handler::_lua_line_cb(const core* lc){
     lc->context->api_stack->pushvalue(lc->istate, lua_upvalueindex(2)); // get arg count
     if(lc->context->api_value->type(lc->istate, -1) != LUA_TNUMBER){
       string_var _errmsg = "Function is not properly setup; Arg count variable is not an int.";
-      return new error_var(&_errmsg, -1);
+      return __dm.new_class<error_var>(&_errmsg, -1);
     }
 
     (*_parg_count) = lc->context->api_value->tointeger(lc->istate, -1);
@@ -1199,7 +1203,7 @@ int file_handler::_lua_line_cb(const core* lc){
 
   if(_err){
     _err->get_error_data()->push_to_stack(lc);
-    delete _err;
+    __dm.delete_class(_err);
 
     lc->context->api_util->error(lc->istate);
   }
@@ -1369,7 +1373,7 @@ void file_handler::read(I_object* obj, const I_vararr* args, I_vararr* res){
           bool (*_filter_cb)(char) = [](char c){return c == ' ';};
           bool (*_filter_cb_invert)(char) = [](char c){return c != ' ';};
 
-          char* _buffer = (char*)malloc(IO_MAXIMUM_ALL_READ_LEN+1); // with null termination
+          char* _buffer = (char*)__dm.malloc(IO_MAXIMUM_ALL_READ_LEN+1); // with null termination
 
           _this->_skip_str(_filter_cb); // (if available) skip the first whitespaces
           int _read_len = _this->_read_str(_buffer, IO_MAXIMUM_ALL_READ_LEN, _filter_cb);
@@ -1379,24 +1383,24 @@ void file_handler::read(I_object* obj, const I_vararr* args, I_vararr* res){
           number_var _num = atof(_buffer);
           res->append_var(&_num);
 
-          free(_buffer);
+          __dm.free(_buffer);
         }
 
         break; case 'a':{ // MARK: READ 'a'
-          char* _buffer = (char*)malloc(IO_MAXIMUM_ALL_READ_LEN+1); // with null termination
+          char* _buffer = (char*)__dm.malloc(IO_MAXIMUM_ALL_READ_LEN+1); // with null termination
           int _read_len = _this->_read_str(_buffer, IO_MAXIMUM_ALL_READ_LEN);
 
           string_var _str(_buffer, _read_len);
           res->append_var(&_str);
 
-          free(_buffer);
+          __dm.free(_buffer);
         }
 
         break; case 'L':
         break; case 'l':{ // MARK: READ 'l' or 'L'
           bool (*_filter_cb)(char) = [](char c){return c == '\n' || c == '\r';};
 
-          char* _buffer = (char*)malloc(IO_MAXIMUM_ALL_READ_LEN+2); // with null termination also newline character (if possible)
+          char* _buffer = (char*)__dm.malloc(IO_MAXIMUM_ALL_READ_LEN+2); // with null termination also newline character (if possible)
           
           int _read_len = _this->_read_str(_buffer, IO_MAXIMUM_ALL_READ_LEN, _filter_cb);
 
@@ -1413,7 +1417,7 @@ void file_handler::read(I_object* obj, const I_vararr* args, I_vararr* res){
           string_var _str(_buffer, _read_len);
           res->append_var(&_str);
 
-          free(_buffer);
+          __dm.free(_buffer);
         }
 
         break; default:
@@ -1422,7 +1426,7 @@ void file_handler::read(I_object* obj, const I_vararr* args, I_vararr* res){
     }
     else if(_iarg->get_type() == LUA_TNUMBER){ // MARK: READ based on a number
       const I_number_var* _number_var = dynamic_cast<const I_number_var*>(_iarg);
-      char* _buffer = (char*)malloc(IO_MAXIMUM_ALL_READ_LEN+1);
+      char* _buffer = (char*)__dm.malloc(IO_MAXIMUM_ALL_READ_LEN+1);
 
       size_t _read_len = (size_t)_number_var->get_number();
       if(_number_var->get_number() > 0)
@@ -1433,7 +1437,7 @@ void file_handler::read(I_object* obj, const I_vararr* args, I_vararr* res){
       string_var _str(_buffer, _read_len);
       res->append_var(&_str);
 
-      free(_buffer);
+      __dm.free(_buffer);
     }
     else
       goto on_error_format;
@@ -1877,7 +1881,7 @@ void file_handler::on_object_added(const core* lc){
   _delete_object_table();
 
   string_var _keystr = FILE_HANDLER_LUA_OBJECT_TABLE;
-  _object_table = new table_var(lc, -1);
+  _object_table = __dm.new_class<table_var>(lc, -1);
   _object_metadata->set_value((I_variant*)&_keystr, (I_variant*)_object_table); // directly casting to not make the compiler upset
 
   // Reset the lua_core to make sure to use this compilation context.
@@ -1886,26 +1890,31 @@ void file_handler::on_object_added(const core* lc){
 
 
 DLLEXPORT lua::library::I_io_handler* CPPLUA_LIBRARY_CREATE_IO_HANDLER(const lua::library::io_handler_api_constructor_data* data){
-  return new io_handler(data->lua_core, data->param);
+  return __dm.new_class<io_handler>(data->lua_core, data->param);
 }
 
 DLLEXPORT void CPPLUA_LIBRARY_DELETE_IO_HANDLER(lua::library::I_io_handler* handler){
-  delete handler;
+  __dm.delete_class(handler);
 }
 
 
 DLLEXPORT lua::library::I_file_handler* CPPLUA_LIBRARY_CREATE_FILE_HANDLER(const lua::library::file_handler_api_constructor_data* data){
   if(!data->use_pipe)
-    return new file_handler(data->lua_core, data->path, data->open_mode);
+    return __dm.new_class<file_handler>(data->lua_core, data->path, data->open_mode);
   else{
 #if (_WIN64) || (_WIN32)
-    return new file_handler(data->lua_core, data->pipe_handle, data->is_output);
+    return __dm.new_class<file_handler>(data->lua_core, data->pipe_handle, data->is_output);
 #endif
   }
 }
 
 DLLEXPORT void CPPLUA_LIBRARY_DELETE_FILE_HANDLER(lua::library::I_file_handler* handler){
-  delete handler;
+  __dm.delete_class(handler);
+}
+
+
+DLLEXPORT void CPPLUA_LIBRARY_SET_IO_HANDLER_MEMORY_MANAGEMENT_CONFIG(const memory_management_config* config){
+  __dm.set_config(config);
 }
 
 

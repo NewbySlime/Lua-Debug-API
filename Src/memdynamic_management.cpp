@@ -6,7 +6,7 @@
 using namespace memory;
 
 
-dynamic_management::dynamic_management(const memory_management_config* config){
+dynamic_management::dynamic_management(const memory_management_config* config): _config(*config){
   set_config(config);
 }
 

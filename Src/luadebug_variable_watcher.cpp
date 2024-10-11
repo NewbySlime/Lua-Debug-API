@@ -1,8 +1,9 @@
 #include "library_linking.h"
 #include "luaapi_variant_util.h"
-#include "luainternal_storage.h"
-#include "luatable_util.h"
 #include "luadebug_variable_watcher.h"
+#include "luainternal_storage.h"
+#include "luamemory_util.h"
+#include "luatable_util.h"
 #include "luavariant_util.h"
 #include "std_logger.h"
 
@@ -13,12 +14,16 @@ using namespace lua;
 using namespace lua::api;
 using namespace lua::debug;
 using namespace lua::internal;
+using namespace lua::memory;
+using namespace ::memory;
 
 
 #ifdef LUA_CODE_EXISTS
 
-// MARK: lua::debug::variable_watcher
+static const dynamic_management* __dm = get_memory_manager();
 
+
+// MARK: lua::debug::variable_watcher
 variable_watcher::variable_watcher(lua_State* state){
   _logger = get_std_logger();
   _state = NULL;
@@ -48,7 +53,7 @@ void variable_watcher::_fetch_function_variable_data(lua_Debug* debug_data){
     if(!_var_name_str)
       break;
 
-    _variable_data* _vdata = new _variable_data();
+    _variable_data* _vdata = __dm->new_class<_variable_data>();
     _vdata->var_name = _var_name_str;
     _vdata->var_data = to_variant(_state, -1);
     _vdata->lua_type = lua_type(_state, -1);
@@ -65,7 +70,7 @@ void variable_watcher::_fetch_function_variable_data(lua_Debug* debug_data){
 void variable_watcher::_clear_variable_data(){
   for(_variable_data* _data: _vdata_list){
     cpplua_delete_variant(_data->var_data);
-    delete _data;
+    __dm->delete_class(_data);
   }
 
   _vdata_list.clear();
@@ -105,7 +110,7 @@ bool variable_watcher::fetch_current_function_variables(){
   bool _result = true;
   lua_Debug* _debug_data = NULL;
 
-  _debug_data = (lua_Debug*)calloc(1, sizeof(lua_Debug)); 
+  _debug_data = (lua_Debug*)__dm->malloc(sizeof(lua_Debug)); 
   if(!lua_getstack(_state, 0, _debug_data)){
     if(_logger)
       _logger->print_error("[variable_watcher] Cannot get current function stack info.\n");
@@ -117,7 +122,7 @@ bool variable_watcher::fetch_current_function_variables(){
   _fetch_function_variable_data(_debug_data);
 
   cleanup_label:{
-    free(_debug_data);
+    __dm->free(_debug_data);
   }
 
   return _result;
@@ -136,7 +141,7 @@ bool variable_watcher::fetch_global_table_data(){
     variant* _key_data = to_variant(_state, key_stack_idx);
     auto _iter = _this->_global_ignore_variables.find(_key_data);
     if(_iter == _this->_global_ignore_variables.end()){
-      _variable_data* _vdata = new _variable_data();
+      _variable_data* _vdata = __dm->new_class<_variable_data>();
       _vdata->var_name = _key_data->to_string();
       _vdata->var_data = to_variant(_state, value_stack_idx);
       _vdata->lua_type = lua_type(_state, value_stack_idx);
@@ -227,11 +232,11 @@ void variable_watcher::set_logger(I_logger* logger){
 // MARK: DLL functions
 
 DLLEXPORT I_variable_watcher* CPPLUA_CREATE_VARIABLE_WATCHER(void* interface_state){
-  return new variable_watcher((lua_State*)interface_state);
+  return __dm->new_class<variable_watcher>((lua_State*)interface_state);
 }
 
 DLLEXPORT void CPPLUA_DELETE_VARIABLE_WATCHER(I_variable_watcher* watcher){
-  delete watcher;
+  __dm->delete_class(watcher);
 }
 
 #endif // LUA_CODE_EXISTS

@@ -6,6 +6,7 @@
 #include "luaobject_util.h"
 #include "luavariant.h"
 #include "macro_helper.h"
+#include "memdynamic_management.h"
 #include "stdio.h"
 
 #if (_WIN64) || (_WIN32)
@@ -307,6 +308,9 @@ namespace lua::library{
 }
 
 
+#define CPPLUA_LIBRARY_SET_IO_HANDLER_MEMORY_MANAGEMENT_CONFIG cpplua_library_set_io_handler_memory_management_config
+#define CPPLUA_LIBRARY_SET_IO_HANDLER_MEMORY_MANAGEMENT_CONFIG_STR MACRO_TO_STR_EXP(CPPLUA_LIBRARY_SET_IO_HANDLER_MEMORY_MANAGEMENT_CONFIG)
+
 #define CPPLUA_LIBRARY_CREATE_IO_HANDLER cpplua_library_create_io_handler
 #define CPPLUA_LIBRARY_CREATE_IO_HANDLER_STR MACRO_TO_STR_EXP(CPPLUA_LIBRARY_CREATE_IO_HANDLER)
 
@@ -325,12 +329,16 @@ typedef void (__stdcall *delete_library_io_handler_func)(lua::library::I_io_hand
 typedef lua::library::I_file_handler* (__stdcall *create_library_file_handler_func)(const lua::library::file_handler_api_constructor_data* data);
 typedef void (__stdcall *delete_library_file_handler_func)(lua::library::I_file_handler* handler);
 
+typedef void (__stdcall *set_library_io_handler_memory_management_config)(const ::memory::memory_management_config* config);
+
 #ifdef LUA_CODE_EXISTS
 DLLEXPORT lua::library::I_io_handler* CPPLUA_LIBRARY_CREATE_IO_HANDLER(const lua::library::io_handler_api_constructor_data* data);
 DLLEXPORT void CPPLUA_LIBRARY_DELETE_IO_HANDLER(lua::library::I_io_handler* handler);
 
 DLLEXPORT lua::library::I_file_handler* CPPLUA_LIBRARY_CREATE_FILE_HANDLER(const lua::library::file_handler_api_constructor_data* data);
 DLLEXPORT void CPPLUA_LIBRARY_DELETE_FILE_HANDLER(lua::library::I_file_handler* handler);
+
+DLLEXPORT void CPPLUA_LIBRARY_SET_IO_HANDLER_MEMORY_MANAGEMENT_CONFIG(const ::memory::memory_management_config* config);
 #endif // LUA_CODE_EXISTS
 
 #endif

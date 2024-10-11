@@ -5,15 +5,15 @@
 #include "luaapi_util.h"
 #include "luaapi_table_util.h"
 #include "luaapi_variant_util.h"
-#include "luautility.h"
-#include "luavariant_arr.h"
-#include "luavariant_util.h"
-#include "luavariant.h"
 #include "luacpp_error_handling.h"
+#include "luamemory_util.h"
 #include "luaobject_util.h"
 #include "luastack_iter.h"
 #include "luatable_util.h"
 #include "luautility.h"
+#include "luavariant_arr.h"
+#include "luavariant_util.h"
+#include "luavariant.h"
 #include "std_logger.h"
 #include "string_util.h"
 
@@ -37,8 +37,12 @@
 
 using namespace lua;
 using namespace lua::api;
+using namespace lua::memory;
 using namespace lua::utility;
+using namespace ::memory;
 
+
+static const dynamic_management* __dm = get_memory_manager();
 
 std_logger _default_logger = std_logger();
 const I_logger* _logger = &_default_logger;
@@ -130,13 +134,13 @@ string_var::string_var(const core* lc, int stack_idx){
 }
 
 string_var::~string_var(){
-  free(_str_mem);
+  __dm->free(_str_mem);
 }
 
 
 void string_var::_init_class(){
   _mem_size = 0;
-  _str_mem = (char*)malloc(_mem_size+1);
+  _str_mem = (char*)__dm->malloc(_mem_size+1);
 
   _put_delimiter_at_end();
 }
@@ -152,7 +156,7 @@ void string_var::_put_delimiter_at_end(){
 
 
 void string_var::_resize_mem(std::size_t newlen){
-  _str_mem = (char*)realloc(_str_mem, newlen+1);
+  _str_mem = (char*)__dm->realloc(_str_mem, newlen+1);
   _mem_size = newlen;
 }
 
@@ -431,11 +435,11 @@ void number_var::to_string(I_string_store* data) const{
 std::string number_var::to_string() const{
   int _str_len = snprintf(NULL, 0, "%f", _this_data);
   
-  char* _c_str = (char*)malloc(_str_len+1);
+  char* _c_str = (char*)__dm->malloc(_str_len+1);
   snprintf(_c_str, _str_len+1, "%f", _this_data);
 
   std::string _result = _c_str;
-  free(_c_str);
+  __dm->free(_c_str);
 
   return _result;
 }
@@ -684,7 +688,7 @@ std::map<std::thread::id, _self_reference_data*>* _sr_data_map = NULL;
 table_var::table_var(){
   _init_class();
 
-  _table_data = new std::map<comparison_variant, variant*>();
+  _table_data = __dm->new_class<std::map<comparison_variant, variant*>>();
   _is_ref = false;
 }
 
@@ -708,13 +712,13 @@ table_var::table_var(const core* lc, int stack_idx){
 
 table_var::~table_var(){
   _clear_table();
-  free(_keys_buffer);
+  __dm->free(_keys_buffer);
 }
 
 
 void table_var::_init_class(){
   if(!_sr_data_map)
-    _sr_data_map = new std::map<std::thread::id, _self_reference_data*>();
+    _sr_data_map = __dm->new_class<std::map<std::thread::id, _self_reference_data*>>();
 
   _init_keys_reg();
 }
@@ -724,7 +728,7 @@ void table_var::_init_table_data(){
   if(_table_data)
     return;
 
-  _table_data = new std::map<comparison_variant, variant*>();
+  _table_data = __dm->new_class<std::map<comparison_variant, variant*>>();
 }
 
 void table_var::_clear_table_data(){
@@ -732,7 +736,7 @@ void table_var::_clear_table_data(){
     return;
 
   for(auto _iter: *_table_data)
-    delete _iter.second;
+    __dm->delete_class(_iter.second);
 
   _table_data->clear();
 }
@@ -763,14 +767,14 @@ void table_var::_clear_table_reference_data(){
 
 void table_var::_clear_table(){
   if(_tref){ // For reference, only dereferencing. Don't remove values inside reference.
-    delete _tref;
+    __dm->delete_class(_tref);
     _tref = NULL;
     _table_pointer = NULL;
   }
 
   if(_table_data){
     _clear_table_data();
-    delete _table_data;
+    __dm->delete_class(_table_data);
     _table_data = NULL;
   }
 
@@ -789,7 +793,7 @@ void table_var::_copy_from_var(const I_table_var* data){
     _table_pointer = data->get_table_pointer();
     _lc = *data->get_lua_core();
 
-    _tref = new value_ref(&_lc, TABLE_REFERENCE_INTERNAL_DATA, _get_reference_key(_table_pointer).c_str());
+    _tref = __dm->new_class<value_ref>(&_lc, TABLE_REFERENCE_INTERNAL_DATA, _get_reference_key(_table_pointer).c_str());
     _update_keys_reg();
   }
   else{
@@ -941,7 +945,7 @@ variant* table_var::_get_value(const I_variant* key) const{
     return NULL;
 
   variant* _key_data = cpplua_create_var_copy(key);
-  comparison_variant _key_comp(_key_data); delete _key_data;
+  comparison_variant _key_comp(_key_data); __dm->delete_class(_key_data);
   
   return _get_value(_key_comp);
 }
@@ -964,8 +968,8 @@ void table_var::_set_value(const I_variant* key, const I_variant* value){
   variant* _value_data = cpplua_create_var_copy(value);
   _set_value(_key_comp, _value_data);
 
-  delete _key_data;
-  delete _value_data;
+  __dm->delete_class(_key_data);
+  __dm->delete_class(_value_data);
 }
 
 
@@ -977,7 +981,7 @@ bool table_var::_remove_value(const comparison_variant& comp_key){
   if(_check_iter == _table_data->end())
     return false;
 
-  delete _check_iter->second;
+  __dm->delete_class(_check_iter->second);
   _table_data->erase(comp_key);
 
   _update_keys_reg();
@@ -989,14 +993,14 @@ bool table_var::_remove_value(const I_variant* key){
     return false;
 
   variant* _key_data = cpplua_create_var_copy(key);
-  comparison_variant _key_comp(_key_data); delete _key_data;
+  comparison_variant _key_comp(_key_data); __dm->delete_class(_key_data);
 
   return _remove_value(_key_comp);
 }
 
 
 void table_var::_init_keys_reg(){
-  _keys_buffer = (const I_variant**)malloc(sizeof(I_variant*));
+  _keys_buffer = (const I_variant**)__dm->malloc(sizeof(I_variant*));
   _keys_buffer[0] = NULL;
 }
 
@@ -1011,7 +1015,7 @@ void table_var::_update_keys_reg(){
     _tref->push_value_to_stack();
 
     int _key_len = _lc.context->api_tableutil->table_len(_lc.istate, -1);
-    _keys_buffer = (const I_variant**)realloc(_keys_buffer, (_key_len+1) * sizeof(I_variant*));
+    _keys_buffer = (const I_variant**)__dm->realloc(_keys_buffer, (_key_len+1) * sizeof(I_variant*));
 
     struct iter_data{
       table_var* _this;
@@ -1036,7 +1040,7 @@ void table_var::_update_keys_reg(){
     _keys_buffer[_key_len] = NULL;
   }
   else{
-    _keys_buffer = (const I_variant**)realloc(_keys_buffer, (_table_data->size()+1) * sizeof(I_variant*));
+    _keys_buffer = (const I_variant**)__dm->realloc(_keys_buffer, (_table_data->size()+1) * sizeof(I_variant*));
 
     int _idx = 0;
     for(auto _pair: *_table_data){
@@ -1053,11 +1057,11 @@ void table_var::_update_keys_reg(){
 void table_var::_clear_keys_reg(){
   int _idx = 0;
   while(_keys_buffer[_idx]){
-    delete _keys_buffer[_idx];
+    __dm->delete_class(_keys_buffer[_idx]);
     _idx++;
   }
 
-  _keys_buffer = (const I_variant**)realloc(_keys_buffer, sizeof(I_variant*));
+  _keys_buffer = (const I_variant**)__dm->realloc(_keys_buffer, sizeof(I_variant*));
   _keys_buffer[0] = NULL;
 }
 
@@ -1086,7 +1090,7 @@ bool table_var::from_state(const core* lc, int stack_idx){
   _lc = *lc;
   _table_pointer = _lc.context->api_value->topointer(_lc.istate, stack_idx);
 
-  _tref = new value_ref(&_lc, TABLE_REFERENCE_INTERNAL_DATA, _get_reference_key(_table_pointer).c_str());
+  _tref = __dm->new_class<value_ref>(&_lc, TABLE_REFERENCE_INTERNAL_DATA, _get_reference_key(_table_pointer).c_str());
   if(!_tref->reference_initiated())
     _tref->set_value(stack_idx);
 
@@ -1099,7 +1103,7 @@ bool table_var::from_state(const core* lc, int stack_idx){
 
 bool table_var::from_state_copy(const core* lc, int stack_idx){
   _clear_table();
-  _table_data = new std::map<comparison_variant, variant*>();
+  _table_data = __dm->new_class<std::map<comparison_variant, variant*>>();
 
   // never copy core to itself, as this does not use referencing
   int _type = lc->context->api_varutil->get_special_type(lc->istate, stack_idx);
@@ -1119,7 +1123,7 @@ bool table_var::from_state_copy(const core* lc, int stack_idx){
   if(_iter == _sr_data_map->end()){
     _has_sr_ownership = true;
 
-    _sr_data = new _self_reference_data();
+    _sr_data = __dm->new_class<_self_reference_data>();
     _sr_data_map->operator[](std::this_thread::get_id()) = _sr_data;
   }
   else
@@ -1137,7 +1141,7 @@ bool table_var::from_state_copy(const core* lc, int stack_idx){
   skip_parsing_label:{
     if(_has_sr_ownership){
       _sr_data_map->erase(std::this_thread::get_id());
-      delete _sr_data;
+      __dm->delete_class(_sr_data);
     }
   }
 
@@ -1436,30 +1440,30 @@ void function_var::_init_cfunction(){
   if(_fn_args)
     return;
 
-  _fn_args = new vararr();
+  _fn_args = __dm->new_class<vararr>();
 }
 
 void function_var::_clear_function_data(){
   if(_fn_args){
-    delete _fn_args;
+    __dm->delete_class(_fn_args);
     _fn_args = NULL;
     _this_fn = NULL;
   }
 
   if(_fref){
-    delete _fref;
+    __dm->delete_class(_fref);
     _fref = NULL;
     _func_pointer = NULL;
   }
 
   if(_fn_binary_data){
-    free(_fn_binary_data);
+    __dm->free(_fn_binary_data);
     _fn_binary_data = NULL;
     _fn_binary_data = 0;
   }
 
   if(_fn_binary_name){
-    free(_fn_binary_name);
+    __dm->free(_fn_binary_name);
     _fn_binary_name = NULL;
   }
 
@@ -1479,7 +1483,7 @@ void function_var::_copy_from_var(const I_function_var* data){
   if(data->is_reference()){
     _lc = *data->get_lua_core();
     _func_pointer = data->get_lua_function_pointer();
-    _fref = new value_ref(&_lc, FUNCTION_REFERENCE_INTERNAL_DATA, _get_reference_key(_func_pointer).c_str());
+    _fref = __dm->new_class<value_ref>(&_lc, FUNCTION_REFERENCE_INTERNAL_DATA, _get_reference_key(_func_pointer).c_str());
 
     return;
   }
@@ -1520,7 +1524,7 @@ int function_var::_fn_chunk_data_writer(lua_State* state, const void* p, size_t 
   size_t _prev_size = _fvar->_fn_binary_len;
   size_t _new_size = _prev_size + sz;
   _fvar->_fn_binary_len = _new_size;
-  _fvar->_fn_binary_data = realloc(_fvar->_fn_binary_data, _new_size);
+  _fvar->_fn_binary_data = __dm->realloc(_fvar->_fn_binary_data, _new_size);
   memcpy(&((char*)_fvar->_fn_binary_data)[_prev_size], p, sz);
   return 0;
 #else
@@ -1586,7 +1590,7 @@ bool function_var::from_state(const core* lc, int stack_idx){
   _lc = *lc;
   _func_pointer = _lc.context->api_value->topointer(_lc.istate, stack_idx);
 
-  _fref = new value_ref(&_lc, FUNCTION_REFERENCE_INTERNAL_DATA, _get_reference_key(_func_pointer).c_str());
+  _fref = __dm->new_class<value_ref>(&_lc, FUNCTION_REFERENCE_INTERNAL_DATA, _get_reference_key(_func_pointer).c_str());
   if(_fref->reference_initiated())
     _fref->set_value(stack_idx);
 
@@ -1652,7 +1656,7 @@ bool function_var::from_state_copy(const core* lc, int stack_idx){
     // Check the version first
     if(verify_lua_version(cpplua_get_api_compilation_context(), lc->context)){
       // Prepare the buffer
-      _fn_binary_data = malloc(0);
+      _fn_binary_data = __dm->malloc(0);
       lc->context->api_util->dump(lc->istate, _fn_chunk_data_writer, this, FUNCTION_LUA_COPY_STRIP_DBG);
 
       // Get function name (by debug functions)
@@ -1665,7 +1669,7 @@ bool function_var::from_state_copy(const core* lc, int stack_idx){
 
       lc->context->api_debug->getinfo(lc->istate, ">n", _idbg);
       size_t _nlen = _idbg->name? strlen(_idbg->name): 0;
-      _fn_binary_name = (char*)malloc(_nlen+1); // With null-termination character
+      _fn_binary_name = (char*)__dm->malloc(_nlen+1); // With null-termination character
       if(_idbg->name)
         memcpy(_fn_binary_name, _idbg->name, _nlen);
       _fn_binary_name[_nlen] = '\0';
@@ -1836,11 +1840,11 @@ void function_var::reset_luafunction(const void* chunk_buf, size_t len, const ch
   _clear_function_data();
 
   _fn_binary_len = len;
-  _fn_binary_data = malloc(len);
+  _fn_binary_data = __dm->malloc(len);
   memcpy(_fn_binary_data, chunk_buf, len);
 
   size_t _name_len = chunk_name? strlen(chunk_name): 0;
-  _fn_binary_name = (char*)malloc(_name_len+1); // with null-termination character
+  _fn_binary_name = (char*)__dm->malloc(_name_len+1); // with null-termination character
   if(chunk_name)
     memcpy(_fn_binary_name, chunk_name, _name_len);
   _fn_binary_name[_name_len] = '\0';
@@ -2040,12 +2044,12 @@ void object_var::_copy_from_var(const I_object_var* data){
   if(!_obj)
     return;
 
-  _oref = new value_ref(&_lc, OBJECT_REFERENCE_INTERNAL_DATA, _get_reference_key(_obj).c_str());
+  _oref = __dm->new_class<value_ref>(&_lc, OBJECT_REFERENCE_INTERNAL_DATA, _get_reference_key(_obj).c_str());
 }
 
 void object_var::_clear_object(){
   if(_oref){
-    delete _oref;
+    __dm->delete_class(_oref);
     _oref = NULL;
   }
 
@@ -2083,7 +2087,7 @@ bool object_var::from_state(const core* lc, int stack_idx){
 
   _lc = *lc;
   _obj = _test_obj;
-  _oref = new value_ref(&_lc, OBJECT_REFERENCE_INTERNAL_DATA, _get_reference_key(_obj).c_str());
+  _oref = __dm->new_class<value_ref>(&_lc, OBJECT_REFERENCE_INTERNAL_DATA, _get_reference_key(_obj).c_str());
 
   return true;
 }
@@ -2093,7 +2097,7 @@ bool object_var::from_object_reference(const core* lc, I_object* obj){
 
   _lc = *lc;
   _obj = obj;
-  _oref = new value_ref(&_lc, OBJECT_REFERENCE_INTERNAL_DATA, _get_reference_key(_obj).c_str());
+  _oref = __dm->new_class<value_ref>(&_lc, OBJECT_REFERENCE_INTERNAL_DATA, _get_reference_key(_obj).c_str());
   if(!_oref->reference_initiated()){
     _lc.context->api_value->newtable(_lc.istate);
     _lc.context->api_objutil->push_object_to_table(_lc.istate, _obj, -1);
@@ -2227,31 +2231,31 @@ const variant* comparison_variant::get_comparison_data() const{
 lua::variant* cpplua_create_var_copy(const lua::I_variant* data){
   switch(data->get_type()){
     break; case string_var::get_static_lua_type():
-      return new string_var(dynamic_cast<const I_string_var*>(data));
+      return __dm->new_class<string_var>(dynamic_cast<const I_string_var*>(data));
 
     break; case number_var::get_static_lua_type():
-      return new number_var(dynamic_cast<const I_number_var*>(data));
+      return __dm->new_class<number_var>(dynamic_cast<const I_number_var*>(data));
 
     break; case bool_var::get_static_lua_type():
-      return new bool_var(dynamic_cast<const I_bool_var*>(data));
+      return __dm->new_class<bool_var>(dynamic_cast<const I_bool_var*>(data));
 
     break; case table_var::get_static_lua_type():
-      return new table_var(dynamic_cast<const I_table_var*>(data));
+      return __dm->new_class<table_var>(dynamic_cast<const I_table_var*>(data));
 
     break; case lightuser_var::get_static_lua_type():
-      return new lightuser_var(dynamic_cast<const I_lightuser_var*>(data));
+      return __dm->new_class<lightuser_var>(dynamic_cast<const I_lightuser_var*>(data));
 
     break; case error_var::get_static_lua_type():
-      return new error_var(dynamic_cast<const I_error_var*>(data));
+      return __dm->new_class<error_var>(dynamic_cast<const I_error_var*>(data));
 
     break; case object_var::get_static_lua_type():
-      return new object_var(dynamic_cast<const I_object_var*>(data));
+      return __dm->new_class<object_var>(dynamic_cast<const I_object_var*>(data));
 
     break; case function_var::get_static_lua_type():
-      return new function_var(dynamic_cast<const I_function_var*>(data));
+      return __dm->new_class<function_var>(dynamic_cast<const I_function_var*>(data));
 
     break; default:
-      return new nil_var();
+      return __dm->new_class<nil_var>();
   }
 }
 
@@ -2263,5 +2267,5 @@ DLLEXPORT void CPPLUA_VARIANT_SET_DEFAULT_LOGGER(I_logger* _logger){
 }
 
 DLLEXPORT void CPPLUA_DELETE_VARIANT(const lua::I_variant* data){
-  delete data;
+  __dm->delete_class(data);
 }

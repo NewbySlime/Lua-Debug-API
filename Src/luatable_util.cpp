@@ -1,3 +1,5 @@
+#include "luaapi_core.h"
+#include "luamemory_util.h"
 #include "luastack_iter.h"
 #include "luatable_util.h"
 #include "luautility.h"
@@ -7,20 +9,25 @@
 
 using namespace lua;
 using namespace lua::api;
+using namespace lua::memory;
 using namespace lua::utility;
+using namespace ::memory;
 
 
 #ifdef LUA_CODE_EXISTS
+
+static const dynamic_management* __dm = get_memory_manager();
+
 
 void lua::iterate_table(lua_State* state, int stack_idx, table_iter_callback callback, void* cb_data){
   // Convert to top aligned stack
   stack_idx = stack_idx > 0? LUA_CONV_B2T(state, stack_idx): stack_idx;
 
   if(lua_type(state, stack_idx) != LUA_TTABLE)
-    throw new std::runtime_error("Lua Error: Supplied stack idx is not a table.\n");
+    throw __dm->new_class<std::runtime_error>("Lua Error: Supplied stack idx is not a table.\n");
 
   if(!lua_checkstack(state, 3))
-    throw new std::runtime_error("Lua Error: C Stack could not be resized.\n");
+    throw __dm->new_class<std::runtime_error>("Lua Error: C Stack could not be resized.\n");
 
   lua_pushnil(state);
   stack_idx -= 1; // Offset index to table variable
@@ -58,7 +65,7 @@ lua::variant* lua::get_table_value(lua_State* state, int stack_idx, const lua::v
   stack_idx = stack_idx < 0? LUA_CONV_T2B(state, stack_idx): stack_idx;
 
   if(lua_type(state, stack_idx) != LUA_TTABLE)
-    throw new std::runtime_error("Lua Error: Supplied stack idx is not a table.\n");
+    throw __dm->new_class<std::runtime_error>("Lua Error: Supplied stack idx is not a table.\n");
 
   key->push_to_stack(&_lc);
   lua_gettable(state, stack_idx);
@@ -76,7 +83,7 @@ void lua::set_table_value(lua_State* state, int stack_idx, const variant* key, c
   // Convert to bottom aligned sack
   stack_idx = stack_idx < 0? LUA_CONV_T2B(state, stack_idx): stack_idx;
   if(lua_type(state, stack_idx) != LUA_TTABLE)
-    throw new std::runtime_error("Lua Error: Supplied stack idx is not a table.\n");
+    throw __dm->new_class<std::runtime_error>("Lua Error: Supplied stack idx is not a table.\n");
 
   // put key below value (from top)
   key->push_to_stack(&_lc);

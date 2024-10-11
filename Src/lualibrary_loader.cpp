@@ -1,5 +1,6 @@
 #include "luainternal_storage.h"
 #include "lualibrary_loader.h"
+#include "luamemory_util.h"
 #include "luaobject_util.h"
 #include "luautility.h"
 #include "luavariant.h"
@@ -10,10 +11,15 @@
 
 using namespace lua;
 using namespace lua::internal;
+using namespace lua::memory;
 using namespace lua::object;
+using namespace ::memory;
 
 
 #ifdef LUA_CODE_EXISTS
+
+static const dynamic_management* __dm = get_memory_manager();
+
 
 library_loader::library_loader(lua_State* state){
   _logger = get_std_logger();
@@ -130,11 +136,11 @@ void library_loader::set_logger(I_logger* logger){
 // MARK: DLL definitions
 
 DLLEXPORT lua::I_library_loader* CPPLUA_CREATE_LIBRARY_LOADER(void* istate){
-  return new library_loader((lua_State*)istate);
+  return __dm->new_class<library_loader>((lua_State*)istate);
 }
 
 DLLEXPORT void CPPLUA_DELETE_LIBRARY_LOADER(lua::I_library_loader* object){
-  delete object;
+  __dm->delete_class(object);
 }
 
 #endif // LUA_CODE_EXISTS

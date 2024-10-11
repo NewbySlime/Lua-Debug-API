@@ -1,5 +1,6 @@
 #include "luadebug_executionflow.h"
 #include "luainternal_storage.h"
+#include "luamemory_util.h"
 #include "luastack_iter.h"
 #include "luatable_util.h"
 #include "luautility.h"
@@ -12,7 +13,10 @@ using namespace lua;
 using namespace lua::api;
 using namespace lua::debug;
 using namespace lua::internal;
+using namespace lua::memory;
 using namespace lua::utility;
+using namespace ::memory;
+
 
 #define FILE_PATH_MAX_BUFFER_SIZE 1024
 
@@ -22,6 +26,9 @@ using namespace lua::utility;
 
 
 #ifdef LUA_CODE_EXISTS
+
+static const dynamic_management* __dm = get_memory_manager();
+
 
 // MARK: lua::debug::execution_flow
 execution_flow::execution_flow(lua_State* state){
@@ -65,7 +72,7 @@ execution_flow::~execution_flow(){
     _function_data* _data = *_iter;
     
     _function_layer.erase(_iter);
-    delete _data;
+    __dm->delete_class(_data);
   }
 
   if(currently_pausing())
@@ -141,7 +148,7 @@ void execution_flow::_hookcb(){
     }
 
     break; case LUA_HOOKCALL:{
-      _function_data* _new_data = new _function_data();
+      _function_data* _new_data = __dm->new_class<_function_data>();
       _new_data->name = _debug_data->name? _debug_data->name: "???";
       _new_data->is_tailcall = false;
 
@@ -158,7 +165,7 @@ void execution_flow::_hookcb(){
       _function_data* _data = *_iter;
 
       _function_layer.erase(_iter);
-      delete _data;
+      __dm->delete_class(_data);
 
       _update_tmp_current_fname();
     }
@@ -253,7 +260,7 @@ execution_flow* execution_flow::get_attached_obj(lua_State* state){
   }
   catch(std::exception* e){
     printf(e->what());
-    delete e;
+    __dm->delete_class(e);
   }
 
   skip_checking_label:{}
@@ -417,11 +424,11 @@ void execution_flow::set_logger(I_logger* logger){
 // MARK: DLL definitions
 
 DLLEXPORT lua::debug::I_execution_flow* CPPLUA_CREATE_EXECUTION_FLOW(void* istate){
-  return new execution_flow((lua_State*)istate);
+  return __dm->new_class<execution_flow>((lua_State*)istate);
 }
 
 DLLEXPORT void CPPLUA_DELETE_EXECUTION_FLOW(lua::debug::I_execution_flow* object){
-  delete object;
+  __dm->delete_class(object);
 }
 
 #endif // LUA_CODE_EXISTS

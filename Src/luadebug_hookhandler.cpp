@@ -1,21 +1,26 @@
+#include "luadebug_hookhandler.h"
 #include "luainternal_storage.h"
+#include "luamemory_util.h"
 #include "luavariant.h"
 #include "luavariant_util.h"
-#include "luadebug_hookhandler.h"
 #include "std_logger.h"
 #include "string_util.h"
 
 #define LUD_HOOK_VAR_NAME "__clua_hook_handler"
+#define LUA_MAX_MASK_COUNT (LUA_HOOKCOUNT + 1)
 
 
 using namespace lua;
 using namespace lua::debug;
 using namespace lua::internal;
-
-#define LUA_MAX_MASK_COUNT (LUA_HOOKCOUNT + 1)
+using namespace lua::memory;
+using namespace ::memory;
 
 
 #ifdef LUA_CODE_EXISTS
+
+static const dynamic_management* __dm = get_memory_manager();
+
 
 // MARK: lua::hook_handler
 hook_handler::hook_handler(lua_State* state, int count){
@@ -201,11 +206,11 @@ void hook_handler::set_logger(I_logger* logger){
 // MARK: DLL definitions
 
 DLLEXPORT lua::debug::I_hook_handler* CPPLUA_CREATE_HOOK_HANDLER(void* istate, int count){
-  return new hook_handler((lua_State*)istate, count);
+  return __dm->new_class<hook_handler>((lua_State*)istate, count);
 }
 
 DLLEXPORT void CPPLUA_DELETE_HOOK_HANDLER(lua::debug::I_hook_handler* object){
-  delete object;
+  __dm->delete_class(object);
 }
 
 #endif // LUA_CODE_EXISTS
