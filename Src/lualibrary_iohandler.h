@@ -23,7 +23,8 @@ namespace lua::library{
 
 
   // MARK: io_handler
-
+  
+  // [Thread-Safe]
   class I_io_handler: virtual public I_object{
     public:
       struct constructor_param{
@@ -53,9 +54,14 @@ namespace lua::library{
       virtual size_t read(I_string_store* pstr, size_t read_len) = 0;
       virtual size_t write(const char* buffer, size_t buffer_size) = 0;
 
+      virtual void lock_object() const = 0;
+      virtual void unlock_object() const = 0;
+
   };
 
 #ifdef LUA_CODE_EXISTS
+  class file_handler;
+
   class io_handler: public I_io_handler, public lua::object::function_store, virtual public I_object{
     private:
       lua::api::core _lc;
@@ -75,17 +81,22 @@ namespace lua::library{
 
       lua::error_var* _last_error = NULL;
 
+#if (_WIN64) || (_WIN32)
+      CRITICAL_SECTION* _object_mutex_ptr;
+      CRITICAL_SECTION _object_mutex;
+#endif
+
       void _clear_error();
       void _set_last_error(long long err_code, const std::string& err_msg);
       void _copy_error_from(file_handler* file);
       // ignore copying when first data is not a nil value
-      void _copy_error_from(const I_vararr* data);
-      bool _has_error(const I_vararr* data);
+      void _copy_error_from(const lua::I_vararr* data);
+      bool _has_error(const lua::I_vararr* data);
 #if (_WIN64) || (_WIN32)
       void _update_last_error_winapi();
 #endif
 
-      void _fill_error_with_last(I_vararr* res);
+      void _fill_error_with_last(lua::I_vararr* res);
 
     public:
       io_handler(const lua::api::core* lua_core, const constructor_param* param = NULL);
@@ -129,12 +140,16 @@ namespace lua::library{
       lua::I_debuggable_object* as_debug_object() override;
       void on_object_added(const lua::api::core* lua_core) override;
 
+      void lock_object() const override;
+      void unlock_object() const override;
+
   };
 #endif // LUA_CODE_EXISTS
 
 
   // MARK: file_handler
 
+  // [Thread-Safe]
   class I_file_handler: virtual public I_object{
     public:
       enum open_op{
@@ -184,6 +199,9 @@ namespace lua::library{
 
       virtual bool can_write() const = 0;
       virtual bool can_read() const = 0;
+
+      virtual void lock_object() const = 0;
+      virtual void unlock_object() const = 0;
        
   };
 
@@ -197,6 +215,9 @@ namespace lua::library{
 
       bool _is_pipe_handle = true;
       bool _own_handle = true;
+
+      CRITICAL_SECTION* _object_mutex_ptr;
+      CRITICAL_SECTION _object_mutex;
 #endif
 
       long _minimal_write_offset = 0;
@@ -282,12 +303,16 @@ namespace lua::library{
       lua::I_debuggable_object* as_debug_object() override;
       void on_object_added(const lua::api::core* lua_core) override;
 
+      void lock_object() const override;
+      void unlock_object() const override;
+
   };
 
+#endif // LUA_CODE_EXISTS
   
   struct io_handler_api_constructor_data{
     const lua::api::core* lua_core;
-    const io_handler::constructor_param* param = NULL;
+    const I_io_handler::constructor_param* param = NULL;
   };
 
   struct file_handler_api_constructor_data{
@@ -296,20 +321,15 @@ namespace lua::library{
     bool use_pipe = false;
 
     const char* path;
-    int open_mode = file_handler::open_read;
+    int open_mode = I_file_handler::open_read;
 
-#if (_WIN32) || (_WIN64)
+#if (_WIN64) || (_WIN32)
     HANDLE pipe_handle;
     bool is_output = true;
 #endif
   };
-#endif // LUA_CODE_EXISTS
-
 }
 
-
-#define CPPLUA_LIBRARY_SET_IO_HANDLER_MEMORY_MANAGEMENT_CONFIG cpplua_library_set_io_handler_memory_management_config
-#define CPPLUA_LIBRARY_SET_IO_HANDLER_MEMORY_MANAGEMENT_CONFIG_STR MACRO_TO_STR_EXP(CPPLUA_LIBRARY_SET_IO_HANDLER_MEMORY_MANAGEMENT_CONFIG)
 
 #define CPPLUA_LIBRARY_CREATE_IO_HANDLER cpplua_library_create_io_handler
 #define CPPLUA_LIBRARY_CREATE_IO_HANDLER_STR MACRO_TO_STR_EXP(CPPLUA_LIBRARY_CREATE_IO_HANDLER)
@@ -329,16 +349,12 @@ typedef void (__stdcall *delete_library_io_handler_func)(lua::library::I_io_hand
 typedef lua::library::I_file_handler* (__stdcall *create_library_file_handler_func)(const lua::library::file_handler_api_constructor_data* data);
 typedef void (__stdcall *delete_library_file_handler_func)(lua::library::I_file_handler* handler);
 
-typedef void (__stdcall *set_library_io_handler_memory_management_config)(const ::memory::memory_management_config* config);
-
 #ifdef LUA_CODE_EXISTS
 DLLEXPORT lua::library::I_io_handler* CPPLUA_LIBRARY_CREATE_IO_HANDLER(const lua::library::io_handler_api_constructor_data* data);
 DLLEXPORT void CPPLUA_LIBRARY_DELETE_IO_HANDLER(lua::library::I_io_handler* handler);
 
 DLLEXPORT lua::library::I_file_handler* CPPLUA_LIBRARY_CREATE_FILE_HANDLER(const lua::library::file_handler_api_constructor_data* data);
 DLLEXPORT void CPPLUA_LIBRARY_DELETE_FILE_HANDLER(lua::library::I_file_handler* handler);
-
-DLLEXPORT void CPPLUA_LIBRARY_SET_IO_HANDLER_MEMORY_MANAGEMENT_CONFIG(const ::memory::memory_management_config* config);
 #endif // LUA_CODE_EXISTS
 
 #endif

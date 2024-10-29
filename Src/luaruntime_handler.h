@@ -1,13 +1,14 @@
 #ifndef LUARUNTIME_HANDLER_HEADER
 #define LUARUNTIME_HANDLER_HEADER
 
+#include "dllutil.h"
 #include "I_debug_user.h"
 #include "I_logger.h"
-#include "luaincludes.h"
 #include "luadebug_hookhandler.h"
 #include "luadebug_executionflow.h"
-#include "luafunction_database.h"
+#include "luaincludes.h"
 #include "lualibrary_loader.h"
+#include "luavariant.h"
 #include "library_linking.h"
 #include "macro_helper.h"
 
@@ -20,36 +21,39 @@
 
 
 namespace lua{
+  class I_thread_handle;
+  class I_thread_control;
+  class I_thread_handle_store;
+  class thread_control;
+
+  // [Thread-Safe]
   class I_runtime_handler: public I_debug_user{
     public:
-      typedef void (*execution_context)(void* data);
-
       virtual ~I_runtime_handler(){}
 
-      virtual void* get_lua_state_interface() = 0;
-      virtual lua::api::core get_lua_core_copy() = 0;
+      virtual void* get_lua_state_interface() const = 0;
+      virtual lua::api::core get_lua_core_copy() const = 0;
 
       // deprecated
       // virtual lua::I_func_db* get_function_database_interface() = 0;
       
-      virtual lua::debug::I_hook_handler* get_hook_handler_interface() = 0;
-      virtual lua::debug::I_execution_flow* get_execution_flow_interface() = 0;
-      virtual lua::I_library_loader* get_library_loader_interface() = 0;
+      virtual lua::I_thread_control* get_thread_control_interface() const = 0;
+      virtual lua::I_library_loader* get_library_loader_interface() const = 0;
 
-      virtual void stop_execution() = 0;
-      virtual bool run_execution(execution_context cb, void* cbdata) = 0;
-      virtual bool is_currently_executing() const = 0;
+      // This creates a new thread for running the current file.
+      // Return false if already running.
+      virtual bool run_code() = 0;
+      virtual bool currently_running() const = 0;
+      virtual bool stop_running() = 0;
+      virtual unsigned long get_main_thread_id() const = 0;
 
-      virtual int run_current_file() = 0;
+      // Only valid until loading another file or runtime_handler is deleted.
+      virtual const lua::I_function_var* get_main_function() const = 0;
+
+      // The function will skip load anothre file if currently running.
+      // Returns -1 if something went wrong.
       virtual int load_file(const char* lua_path) = 0;
       virtual void load_std_libs() = 0;
-
-#if (_WIN64) || (_WIN32)
-      virtual DWORD get_running_thread_id() = 0;
-
-      virtual void register_event_execution_finished(HANDLE event) = 0;
-      virtual void remove_event_execution_finished(HANDLE event) = 0;
-#endif
 
       // can be NULL if no error from the start of the lua_State
       // can also be used for knowing if the object (runtime_handler) has any error when being created or not
@@ -64,89 +68,60 @@ namespace lua{
   class runtime_handler: public I_runtime_handler{
     private:
       I_logger* _logger;
-
       lua_State* _state;
 
-      bool _stop_thread = false;
-
-      bool _create_own_lua_state = false;
+      lua::function_var* _main_func;
 
 #if (_WIN64) || (_WIN32)
-      struct _t_entry_point_data{
-        execution_context cb;
-        void* cbdata;
-
-        runtime_handler* _this;
-      };
-
-      // the handle shouldn't be removed by itself (thread), it should be removed by another thread (maybe calling thread), see stop_execution
-      HANDLE _thread_handle = NULL;
-      _t_entry_point_data* _thread_data = NULL;
-
-      std::set<HANDLE> _event_finished;
-
-      void _deinit_thread();
-
-      static DWORD __stdcall _thread_entry_point(LPVOID data);
+      CRITICAL_SECTION _obj_mutex;
 #endif
 
-      lua::debug::hook_handler* _hook_handler = NULL;
-      lua::debug::execution_flow* _execution_flow = NULL;
-
+      lua::thread_control* _thread_control = NULL;
       lua::library_loader* _library_loader = NULL;
 
       lua::variant* _last_err_obj = NULL;
 
+      unsigned long _current_tid = ERROR_INVALID_THREAD_ID;
 
       void _initiate_constructor();
       void _initiate_class();
 
+      void _lock_object();
+      void _unlock_object();
+
       // get error object and pops the value from the stack
       void _read_error_obj();
       void _set_error_obj(const I_variant* err_data = NULL);
-      
-      void _hookcb();
 
       static void _set_bind_obj(runtime_handler* obj, lua_State* state);
 
-      static void _hookcb_static(lua_State* state, void* cbdata);
-
     public:
-      runtime_handler(lua_State* state);
-
       runtime_handler(bool load_library = true);
-      runtime_handler(const std::string& lua_path, bool immediate_run = true, bool load_library = true);
+      runtime_handler(const std::string& lua_path, bool load_library = true);
 
       ~runtime_handler();
 
       static runtime_handler* get_attached_object(lua_State* state);
 
-      lua_State* get_lua_state();
-      void* get_lua_state_interface() override;
-      lua::api::core get_lua_core_copy() override;
+      lua_State* get_lua_state() const;
+      void* get_lua_state_interface() const override;
+      lua::api::core get_lua_core_copy() const override;
 
-      lua::debug::hook_handler* get_hook_handler();
-      lua::debug::execution_flow* get_execution_flow();
-      lua::library_loader* get_library_loader();
+      lua::thread_control* get_thread_control() const;
+      lua::library_loader* get_library_loader() const;
 
-      lua::debug::I_hook_handler* get_hook_handler_interface() override;
-      lua::debug::I_execution_flow* get_execution_flow_interface() override;
-      lua::I_library_loader* get_library_loader_interface() override;
+      lua::I_thread_control* get_thread_control_interface() const override;
+      lua::I_library_loader* get_library_loader_interface() const override;
 
-      void stop_execution() override;
-      bool run_execution(execution_context cb, void* cbdata) override;
-      bool is_currently_executing() const override;
+      bool run_code() override;
+      bool currently_running() const override;
+      bool stop_running() override;
+      unsigned long get_main_thread_id() const override;
 
-      int run_current_file() override;
+      const lua::I_function_var* get_main_function() const override; 
+
       int load_file(const char* lua_path) override;
       void load_std_libs() override;
-
-#if (_WIN64) || (_WIN32)
-      DWORD get_running_thread_id() override;
-
-      void register_event_execution_finished(HANDLE event) override;
-      void remove_event_execution_finished(HANDLE event) override;
-#endif
 
       const lua::I_variant* get_last_error_object() const override;
       void reset_last_error() override;
@@ -171,7 +146,7 @@ typedef lua::I_runtime_handler* (__stdcall *rh_create_func)(const char* lua_path
 typedef void (__stdcall *rh_delete_func)(lua::I_runtime_handler* handler);
 
 #ifdef LUA_CODE_EXISTS
-DLLEXPORT lua::I_runtime_handler* CPPLUA_CREATE_RUNTIME_HANDLER(const char* lua_path, bool immediate_run, bool load_library);
+DLLEXPORT lua::I_runtime_handler* CPPLUA_CREATE_RUNTIME_HANDLER(const char* lua_path, bool load_library);
 DLLEXPORT void CPPLUA_DELETE_RUNTIME_HANDLER(lua::I_runtime_handler* handler);
 #endif // LUA_CODE_EXISTS
 

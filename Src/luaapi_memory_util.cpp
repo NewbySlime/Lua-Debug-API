@@ -9,7 +9,7 @@ using namespace lua::memory;
 
 class _api_memory_util_definition: public lua::api::I_memory_util{
   public:
-    const ::memory::I_dynamic_management* get_memory_manager() override{
+    ::memory::I_dynamic_management* get_memory_manager() override{
       return lua::memory::get_memory_manager();
     }
 

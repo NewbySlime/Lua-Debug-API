@@ -9,7 +9,7 @@ using namespace ::memory;
 
 #ifdef LUA_CODE_EXISTS
 
-static const dynamic_management* __dm = get_memory_manager(); 
+static const I_dynamic_management* __dm = get_memory_manager(); 
 
 
 class _api_debug_function: public I_debug{
@@ -28,28 +28,11 @@ class _api_debug_function: public I_debug{
     void upvaluejoin(void* istate, int fidx1, int n1, int fidx2, int n2) override{lua_upvaluejoin((lua_State*)istate, fidx1, n1, fidx2, n2);}
 
     void* create_lua_debug_obj() override{
-      return __dm->malloc(sizeof(lua_Debug));
+      return __dm->malloc(sizeof(lua_Debug), DYNAMIC_MANAGEMENT_DEBUG_DATA);
     }
 
     void delete_lua_debug_obj(void* dbg_obj) override{
-      __dm->free(dbg_obj);
-    }
-
-
-    I_execution_flow* create_execution_flow(void* istate) override{
-      return cpplua_create_execution_flow(istate);
-    }
-
-    void delete_execution_flow(I_execution_flow* object) override{
-      cpplua_delete_execution_flow(object);
-    }
-
-    I_hook_handler* create_hook_handler(void* istate, int count) override{
-      return cpplua_create_hook_handler(istate, count);
-    }
-
-    void delete_hook_handler(I_hook_handler* object) override{
-      cpplua_delete_hook_handler(object);
+      __dm->free(dbg_obj, DYNAMIC_MANAGEMENT_DEBUG_DATA);
     }
 
     I_variable_watcher* create_variable_watcher(void* istate) override{

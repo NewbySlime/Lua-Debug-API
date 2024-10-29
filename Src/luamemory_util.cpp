@@ -1,38 +1,39 @@
+#include "dllutil.h"
 #include "luamemory_util.h"
 #include "memory"
+#include "Windows.h"
 
+using namespace dynamic_library::util;
 using namespace lua::memory;
 using namespace ::memory;
 
 
-static memory_management_config _default_config(malloc, free);
-static dynamic_management _memdynamic_man(&_default_config);
 
-
-const dynamic_management* lua::memory::get_memory_manager(){
-  return &_memdynamic_man;
+I_dynamic_management* lua::memory::get_memory_manager(){
+  return MEMDYNAMIC_MANAGEMENT_GET_STATIC_INSTANCE();
 }
 
 
 const memory_management_config* lua::memory::get_memory_manager_config(){
-  return _memdynamic_man.get_config();
+  return MEMDYNAMIC_MANAGEMENT_GET_STATIC_INSTANCE()->get_config();
 }
 
 void lua::memory::set_memory_manager_config(const memory_management_config* config){
-  _memdynamic_man.set_config(config);
+  MEMDYNAMIC_MANAGEMENT_GET_STATIC_INSTANCE()->set_config(config);
 }
 
 
 static void* __lua_alloc(void* ud, void* ptr, size_t osize, size_t nsize){
+  I_dynamic_management* __dm = MEMDYNAMIC_MANAGEMENT_GET_STATIC_INSTANCE();
   if(!ptr)
-    return _memdynamic_man.malloc(nsize);
+    return __dm->malloc(nsize, DYNAMIC_MANAGEMENT_DEBUG_DATA);
 
   if(!nsize){
-    _memdynamic_man.free(ptr);
+    __dm->free(ptr, DYNAMIC_MANAGEMENT_DEBUG_DATA);
     return NULL;
   }
 
-  return _memdynamic_man.realloc(ptr, nsize);
+  return __dm->realloc(ptr, nsize, DYNAMIC_MANAGEMENT_DEBUG_DATA);
 }
 
 lua_Alloc lua::memory::memory_manager_as_lua_alloc(){

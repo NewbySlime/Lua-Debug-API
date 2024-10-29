@@ -15,7 +15,7 @@ int _strfc(const char* str, size_t strlen, character_filter filter, term_filter 
       break;
 
     if(_tfilter && _tfilter(ch))
-      return SIZE_MAX;
+      return INT_MAX;
   }
 
   return i;

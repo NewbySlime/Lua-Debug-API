@@ -1,0 +1,6 @@
+Current Lua code version: 5.3
+
+NOTE for Lua code:
+  Since there are some modifications to the original Lua code for this C++ API, things to consider when changing to new Lua code/version;
+  - Changes to lua_lock and lua_unlock to use C++ API multithreading code for synchronization.
+  - Minor changes to Lua API functions (some are excluded, functions that uses two stacks like transferring data between state's stack (lua_xmove)) to use macro for swapping state to thread dependent state (removing possibility for multiple threads accessing one stack).

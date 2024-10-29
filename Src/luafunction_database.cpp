@@ -1,3 +1,5 @@
+/*
+
 #include "luafunction_database.h"
 #include "luautility.h"
 #include "luavariant_util.h"
@@ -232,7 +234,7 @@ bool func_db::expose_c_function_nonstrict(const char* function_name, function_cb
   _c_func_metadata* _metadata = _c_get_metadata(_fname_stdstr);
   if(_metadata){
     if(_current_logger){
-      _current_logger->print_error(format_str("[func_db] Cannot expose C function '%s'. Reason: another function with the same name already exposed.").c_str());
+      _current_logger->print_error(format_str("[func_db] Cannot expose C function '%s'. Reason: another function with the same name already exposed.", _fname_stdstr.c_str()).c_str());
     }
 
     return false;
@@ -311,3 +313,5 @@ DLLEXPORT void CPPLUA_DELETE_FUNCTION_DATABASE(lua::I_func_db* database){
 }
 
 #endif // LUA_CODE_EXISTS
+
+*/

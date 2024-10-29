@@ -9,8 +9,16 @@
 #include "set"
 #include "vector"
 
+#if (_WIN64) || (_WIN32)
+#include "Windows.h"
+#endif
+
+
+// NOTE: since the introduction of thread dependent state system, every usage of the bound state will always be that state (of a thread) regardless which thread are calling it. It works by locking a state and then disabling the system for a moment.
+
 
 namespace lua::debug{
+  // [Not Thread-Safe]
   class I_variable_watcher{
     public:
       virtual ~I_variable_watcher(){};
@@ -49,19 +57,27 @@ namespace lua::debug{
 
       std::vector<_variable_data*> _vdata_list;
       std::map<std::string, _variable_data*> _vdata_map;
-
       std::set<lua::comparison_variant> _global_ignore_variables;
 
-      void _fetch_function_variable_data(lua_Debug* debug_data);
-      void _clear_variable_data();
+#if (_WIN64) || (_WIN32)
+      CRITICAL_SECTION _object_mutex;
+      CRITICAL_SECTION* _object_mutex_ptr;
+#endif
 
-      static void _set_bind_obj(variable_watcher* obj, lua_State* state);
+
+      void _lock_object() const;
+      void _unlock_object() const;
+
+      // Also lock this object
+      void _lock_state() const;
+      // Also unlock this object
+      void _unlock_state() const;
+
+      void _clear_variable_data();
 
     public:
       variable_watcher(lua_State* state);
       ~variable_watcher();
-
-      static variable_watcher* get_attached_object(lua_State* state);
 
       bool fetch_global_table_data() override;
       void update_global_table_ignore() override;

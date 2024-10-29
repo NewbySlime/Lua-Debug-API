@@ -25,6 +25,7 @@
 
 // This code will be statically bind to the compilation file
 // If a code returns an interface (I_xx) create a copy with using statically linked compilation function if the code that returns comes from dynamic library
+// NOTE: Objects in the code are not Thread-Safe.
 
 namespace lua{
   void set_default_logger(I_logger* logger);
@@ -143,6 +144,8 @@ namespace lua{
 
       void to_string(I_string_store* pstring) const override;
       std::string to_string() const override;
+
+      string_var& operator=(const string_var& data);
 
       string_var& operator+=(const string_var& var1);
       string_var& operator+=(const std::string& var1);

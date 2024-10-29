@@ -17,10 +17,16 @@
 #include "std_logger.h"
 #include "string_util.h"
 
+#include "algorithm"
 #include "cmath"
 #include "cstring"
 #include "thread"
 #include "set"
+
+// disable min macro
+#ifdef min
+#undef min
+#endif
 
 #define BASE_VARIANT_TYPE_NAME "nil"
 
@@ -42,7 +48,7 @@ using namespace lua::utility;
 using namespace ::memory;
 
 
-static const dynamic_management* __dm = get_memory_manager();
+static const I_dynamic_management* __dm = get_memory_manager();
 
 std_logger _default_logger = std_logger();
 const I_logger* _logger = &_default_logger;
@@ -134,13 +140,13 @@ string_var::string_var(const core* lc, int stack_idx){
 }
 
 string_var::~string_var(){
-  __dm->free(_str_mem);
+  __dm->free(_str_mem, DYNAMIC_MANAGEMENT_DEBUG_DATA);
 }
 
 
 void string_var::_init_class(){
   _mem_size = 0;
-  _str_mem = (char*)__dm->malloc(_mem_size+1);
+  _str_mem = (char*)__dm->malloc(_mem_size+1, DYNAMIC_MANAGEMENT_DEBUG_DATA);
 
   _put_delimiter_at_end();
 }
@@ -156,7 +162,7 @@ void string_var::_put_delimiter_at_end(){
 
 
 void string_var::_resize_mem(std::size_t newlen){
-  _str_mem = (char*)__dm->realloc(_str_mem, newlen+1);
+  _str_mem = (char*)__dm->realloc(_str_mem, newlen+1, DYNAMIC_MANAGEMENT_DEBUG_DATA);
   _mem_size = newlen;
 }
 
@@ -179,7 +185,7 @@ void string_var::_append_cstr(const char* cstr, std::size_t strlen){
 
 
 int string_var::_strcmp(const string_var& var1, const string_var& var2){
-  std::size_t _check_len = min(var1._mem_size, var2._mem_size);
+  std::size_t _check_len = std::min(var1._mem_size, var2._mem_size);
   for(int i = 0; i < _check_len; i++){
     char _v1_ch = var1[i];
     char _v2_ch = var2[i];
@@ -217,7 +223,7 @@ bool string_var::from_state(const core* lc, int stack_idx){
       case LUA_TNUMBER:
     
     break; default:{
-      _logger->print_error(format_str("Mismatched type when converting at stack (%d). (%s-%s)\n",
+      _logger->print_error(format_str_mem(__dm, "Mismatched type when converting at stack (%d). (%s-%s)\n",
         stack_idx,
         lc->context->api_value->ttypename(lc->istate, _type),
         lc->context->api_value->ttypename(lc->istate, get_type())
@@ -245,6 +251,12 @@ void string_var::to_string(I_string_store* pstring) const{
 
 std::string string_var::to_string() const{
   return std::string(_str_mem, _mem_size);
+}
+
+
+string_var& string_var::operator=(const string_var& data){
+  _set_to_cstr(data.get_string(), data.get_length());
+  return *this;
 }
 
 
@@ -375,20 +387,11 @@ void number_var::_copy_from_var(const I_number_var* var){
 
 
 int number_var::_comp_num(const number_var& var1, const number_var& var2){
-  int _i_var1 = (int)round(var1._this_data);
-  int _i_var2 = (int)round(var2._this_data);
-
-  double _delta_var1 = var1._this_data - (double)_i_var1;
-  double _delta_var2 = var2._this_data - (double)_i_var2;
+  double _delta_var = var1._this_data - var2._this_data;
   
   // equal comparison
-  if(
-    abs(_delta_var1) <= NUM_VAR_EQUAL_ROUND_COMP && abs(_delta_var2) <= NUM_VAR_EQUAL_ROUND_COMP &&
-    _i_var1 == _i_var2
-    )
-  {
+  if(abs(_delta_var) <= NUM_VAR_EQUAL_ROUND_COMP)
     return 0;
-  }
   
   return var1._this_data < var2._this_data? -1: 1;
 }
@@ -409,7 +412,7 @@ bool number_var::from_state(const core* lc, int stack_idx){
 
   int _type = lc->context->api_varutil->get_special_type(lc->istate, stack_idx);
   if(_type != get_type()){
-    _logger->print_error(format_str("Mismatched type when converting at stack (%d). (%s-%s)\n",
+    _logger->print_error(format_str_mem(__dm, "Mismatched type when converting at stack (%d). (%s-%s)\n",
       stack_idx,
       lc->context->api_value->ttypename(lc->istate, _type),
       lc->context->api_value->ttypename(lc->istate, get_type())
@@ -435,11 +438,11 @@ void number_var::to_string(I_string_store* data) const{
 std::string number_var::to_string() const{
   int _str_len = snprintf(NULL, 0, "%f", _this_data);
   
-  char* _c_str = (char*)__dm->malloc(_str_len+1);
+  char* _c_str = (char*)__dm->malloc(_str_len+1, DYNAMIC_MANAGEMENT_DEBUG_DATA);
   snprintf(_c_str, _str_len+1, "%f", _this_data);
 
   std::string _result = _c_str;
-  __dm->free(_c_str);
+  __dm->free(_c_str, DYNAMIC_MANAGEMENT_DEBUG_DATA);
 
   return _result;
 }
@@ -588,7 +591,7 @@ bool bool_var::from_state(const core* lc, int stack_idx){
 
   int _type = lc->context->api_varutil->get_special_type(lc->istate, stack_idx);
   if(_type != get_type()){
-    _logger->print_error(format_str("Mismatched type when converting at stack (%d). (%s-%s)\n",
+    _logger->print_error(format_str_mem(__dm, "Mismatched type when converting at stack (%d). (%s-%s)\n",
       stack_idx,
       lc->context->api_value->ttypename(lc->istate, _type),
       lc->context->api_value->ttypename(lc->istate, get_type())
@@ -688,7 +691,7 @@ std::map<std::thread::id, _self_reference_data*>* _sr_data_map = NULL;
 table_var::table_var(){
   _init_class();
 
-  _table_data = __dm->new_class<std::map<comparison_variant, variant*>>();
+  _table_data = __dm->new_class_dbg<std::map<comparison_variant, variant*>>(DYNAMIC_MANAGEMENT_DEBUG_DATA);
   _is_ref = false;
 }
 
@@ -712,13 +715,13 @@ table_var::table_var(const core* lc, int stack_idx){
 
 table_var::~table_var(){
   _clear_table();
-  __dm->free(_keys_buffer);
+  __dm->free(_keys_buffer, DYNAMIC_MANAGEMENT_DEBUG_DATA);
 }
 
 
 void table_var::_init_class(){
   if(!_sr_data_map)
-    _sr_data_map = __dm->new_class<std::map<std::thread::id, _self_reference_data*>>();
+    _sr_data_map = __dm->new_class_dbg<std::map<std::thread::id, _self_reference_data*>>(DYNAMIC_MANAGEMENT_DEBUG_DATA);
 
   _init_keys_reg();
 }
@@ -728,7 +731,7 @@ void table_var::_init_table_data(){
   if(_table_data)
     return;
 
-  _table_data = __dm->new_class<std::map<comparison_variant, variant*>>();
+  _table_data = __dm->new_class_dbg<std::map<comparison_variant, variant*>>(DYNAMIC_MANAGEMENT_DEBUG_DATA);
 }
 
 void table_var::_clear_table_data(){
@@ -736,7 +739,7 @@ void table_var::_clear_table_data(){
     return;
 
   for(auto _iter: *_table_data)
-    __dm->delete_class(_iter.second);
+    __dm->delete_class_dbg(_iter.second, DYNAMIC_MANAGEMENT_DEBUG_DATA);
 
   _table_data->clear();
 }
@@ -767,14 +770,14 @@ void table_var::_clear_table_reference_data(){
 
 void table_var::_clear_table(){
   if(_tref){ // For reference, only dereferencing. Don't remove values inside reference.
-    __dm->delete_class(_tref);
+    __dm->delete_class_dbg(_tref, DYNAMIC_MANAGEMENT_DEBUG_DATA);
     _tref = NULL;
     _table_pointer = NULL;
   }
 
   if(_table_data){
     _clear_table_data();
-    __dm->delete_class(_table_data);
+    __dm->delete_class_dbg(_table_data, DYNAMIC_MANAGEMENT_DEBUG_DATA);
     _table_data = NULL;
   }
 
@@ -793,7 +796,7 @@ void table_var::_copy_from_var(const I_table_var* data){
     _table_pointer = data->get_table_pointer();
     _lc = *data->get_lua_core();
 
-    _tref = __dm->new_class<value_ref>(&_lc, TABLE_REFERENCE_INTERNAL_DATA, _get_reference_key(_table_pointer).c_str());
+    _tref = __dm->new_class_dbg<value_ref>(DYNAMIC_MANAGEMENT_DEBUG_DATA, &_lc, TABLE_REFERENCE_INTERNAL_DATA, _get_reference_key(_table_pointer).c_str());
     _update_keys_reg();
   }
   else{
@@ -814,7 +817,7 @@ void table_var::_copy_from_var(const I_table_var* data){
 
 
 std::string table_var::_get_reference_key(const void* pointer){
-  return format_str("0x%X", (unsigned long long)pointer);
+  return format_str_mem(__dm, "0x%X", (unsigned long long)pointer);
 }
 
 
@@ -845,7 +848,7 @@ void table_var::_fs_iter_cb(const lua::api::core* lc, int key_stack, int val_sta
   if(_value->get_type() == LUA_TNIL){
     string_store _str;
     _key_value->to_string(&_str);
-    _logger->print_warning(format_str("Value of (type %d %s) is Nil. Is this intended?\n", _key_value->get_type(), _str.data.c_str()).c_str());
+    _logger->print_warning(format_str_mem(__dm, "Value of (type %d %s) is Nil. Is this intended?\n", _key_value->get_type(), _str.data.c_str()).c_str());
   }
 
   switch(_key_value->get_type()){
@@ -859,7 +862,7 @@ void table_var::_fs_iter_cb(const lua::api::core* lc, int key_stack, int val_sta
       }
 
     break; default:{
-      _logger->print_error(format_str("Using type (%s) as key is not supported.\n",
+      _logger->print_error(format_str_mem(__dm, "Using type (%s) as key is not supported.\n",
         lc->context->api_value->ttypename(lc->istate, _key_value->get_type())
       ).c_str());
     }
@@ -945,7 +948,7 @@ variant* table_var::_get_value(const I_variant* key) const{
     return NULL;
 
   variant* _key_data = cpplua_create_var_copy(key);
-  comparison_variant _key_comp(_key_data); __dm->delete_class(_key_data);
+  comparison_variant _key_comp(_key_data); __dm->delete_class_dbg(_key_data, DYNAMIC_MANAGEMENT_DEBUG_DATA);
   
   return _get_value(_key_comp);
 }
@@ -968,8 +971,8 @@ void table_var::_set_value(const I_variant* key, const I_variant* value){
   variant* _value_data = cpplua_create_var_copy(value);
   _set_value(_key_comp, _value_data);
 
-  __dm->delete_class(_key_data);
-  __dm->delete_class(_value_data);
+  __dm->delete_class_dbg(_key_data, DYNAMIC_MANAGEMENT_DEBUG_DATA);
+  __dm->delete_class_dbg(_value_data, DYNAMIC_MANAGEMENT_DEBUG_DATA);
 }
 
 
@@ -981,7 +984,7 @@ bool table_var::_remove_value(const comparison_variant& comp_key){
   if(_check_iter == _table_data->end())
     return false;
 
-  __dm->delete_class(_check_iter->second);
+  __dm->delete_class_dbg(_check_iter->second, DYNAMIC_MANAGEMENT_DEBUG_DATA);
   _table_data->erase(comp_key);
 
   _update_keys_reg();
@@ -993,14 +996,14 @@ bool table_var::_remove_value(const I_variant* key){
     return false;
 
   variant* _key_data = cpplua_create_var_copy(key);
-  comparison_variant _key_comp(_key_data); __dm->delete_class(_key_data);
+  comparison_variant _key_comp(_key_data); __dm->delete_class_dbg(_key_data, DYNAMIC_MANAGEMENT_DEBUG_DATA);
 
   return _remove_value(_key_comp);
 }
 
 
 void table_var::_init_keys_reg(){
-  _keys_buffer = (const I_variant**)__dm->malloc(sizeof(I_variant*));
+  _keys_buffer = (const I_variant**)__dm->malloc(sizeof(I_variant*), DYNAMIC_MANAGEMENT_DEBUG_DATA);
   _keys_buffer[0] = NULL;
 }
 
@@ -1015,7 +1018,7 @@ void table_var::_update_keys_reg(){
     _tref->push_value_to_stack();
 
     int _key_len = _lc.context->api_tableutil->table_len(_lc.istate, -1);
-    _keys_buffer = (const I_variant**)__dm->realloc(_keys_buffer, (_key_len+1) * sizeof(I_variant*));
+    _keys_buffer = (const I_variant**)__dm->realloc(_keys_buffer, (_key_len+1) * sizeof(I_variant*), DYNAMIC_MANAGEMENT_DEBUG_DATA);
 
     struct iter_data{
       table_var* _this;
@@ -1040,7 +1043,7 @@ void table_var::_update_keys_reg(){
     _keys_buffer[_key_len] = NULL;
   }
   else{
-    _keys_buffer = (const I_variant**)__dm->realloc(_keys_buffer, (_table_data->size()+1) * sizeof(I_variant*));
+    _keys_buffer = (const I_variant**)__dm->realloc(_keys_buffer, (_table_data->size()+1) * sizeof(I_variant*), DYNAMIC_MANAGEMENT_DEBUG_DATA);
 
     int _idx = 0;
     for(auto _pair: *_table_data){
@@ -1057,11 +1060,11 @@ void table_var::_update_keys_reg(){
 void table_var::_clear_keys_reg(){
   int _idx = 0;
   while(_keys_buffer[_idx]){
-    __dm->delete_class(_keys_buffer[_idx]);
+    __dm->delete_class_dbg(_keys_buffer[_idx], DYNAMIC_MANAGEMENT_DEBUG_DATA);
     _idx++;
   }
 
-  _keys_buffer = (const I_variant**)__dm->realloc(_keys_buffer, sizeof(I_variant*));
+  _keys_buffer = (const I_variant**)__dm->realloc(_keys_buffer, sizeof(I_variant*), DYNAMIC_MANAGEMENT_DEBUG_DATA);
   _keys_buffer[0] = NULL;
 }
 
@@ -1077,7 +1080,7 @@ bool table_var::from_state(const core* lc, int stack_idx){
   // use the core in the argument first
   int _type = lc->context->api_varutil->get_special_type(lc->istate, stack_idx);
   if(_type != get_type()){
-    _logger->print_error(format_str("Mismatched type when converting at stack (%d). (%s-%s)\n",
+    _logger->print_error(format_str_mem(__dm, "Mismatched type when converting at stack (%d). (%s-%s)\n",
       stack_idx,
       lc->context->api_value->ttypename(lc->istate, _type),
       lc->context->api_value->ttypename(lc->istate, get_type())
@@ -1090,25 +1093,25 @@ bool table_var::from_state(const core* lc, int stack_idx){
   _lc = *lc;
   _table_pointer = _lc.context->api_value->topointer(_lc.istate, stack_idx);
 
-  _tref = __dm->new_class<value_ref>(&_lc, TABLE_REFERENCE_INTERNAL_DATA, _get_reference_key(_table_pointer).c_str());
+  _tref = __dm->new_class_dbg<value_ref>(DYNAMIC_MANAGEMENT_DEBUG_DATA, &_lc, TABLE_REFERENCE_INTERNAL_DATA, _get_reference_key(_table_pointer).c_str());
   if(!_tref->reference_initiated())
     _tref->set_value(stack_idx);
 
-  _update_keys_reg();
-
   _is_ref = true;
+
+  _update_keys_reg();
 
   return true;
 }
 
 bool table_var::from_state_copy(const core* lc, int stack_idx){
   _clear_table();
-  _table_data = __dm->new_class<std::map<comparison_variant, variant*>>();
+  _table_data = __dm->new_class_dbg<std::map<comparison_variant, variant*>>(DYNAMIC_MANAGEMENT_DEBUG_DATA);
 
   // never copy core to itself, as this does not use referencing
   int _type = lc->context->api_varutil->get_special_type(lc->istate, stack_idx);
   if(_type != get_type()){
-    _logger->print_error(format_str("Mismatched type when converting at stack (%d). (%s-%s)\n",
+    _logger->print_error(format_str_mem(__dm, "Mismatched type when converting at stack (%d). (%s-%s)\n",
       stack_idx,
       lc->context->api_value->ttypename(lc->istate, _type),
       lc->context->api_value->ttypename(lc->istate, get_type())
@@ -1123,7 +1126,7 @@ bool table_var::from_state_copy(const core* lc, int stack_idx){
   if(_iter == _sr_data_map->end()){
     _has_sr_ownership = true;
 
-    _sr_data = __dm->new_class<_self_reference_data>();
+    _sr_data = __dm->new_class_dbg<_self_reference_data>(DYNAMIC_MANAGEMENT_DEBUG_DATA);
     _sr_data_map->operator[](std::this_thread::get_id()) = _sr_data;
   }
   else
@@ -1141,7 +1144,7 @@ bool table_var::from_state_copy(const core* lc, int stack_idx){
   skip_parsing_label:{
     if(_has_sr_ownership){
       _sr_data_map->erase(std::this_thread::get_id());
-      __dm->delete_class(_sr_data);
+      __dm->delete_class_dbg(_sr_data, DYNAMIC_MANAGEMENT_DEBUG_DATA);
     }
   }
 
@@ -1324,7 +1327,7 @@ int lightuser_var::get_type() const{
 bool lightuser_var::from_state(const core* lc, int stack_idx){
   int _type = lc->context->api_varutil->get_special_type(lc->istate, stack_idx);
   if(_type != get_type()){
-    _logger->print_error(format_str("Mismatched type when converting at stack (%d). (%s-%s)\n",
+    _logger->print_error(format_str_mem(__dm, "Mismatched type when converting at stack (%d). (%s-%s)\n",
       stack_idx,
       lc->context->api_value->ttypename(lc->istate, _type),
       lc->context->api_value->ttypename(lc->istate, get_type())
@@ -1342,7 +1345,7 @@ void lightuser_var::push_to_stack(const core* lc) const{
 }
 
 
-#define LIGHTUSER_VAR_TO_STRING(ptr) format_str("lud 0x%X", ptr)
+#define LIGHTUSER_VAR_TO_STRING(ptr) format_str_mem(__dm, "lud 0x%X", ptr)
 
 void lightuser_var::to_string(I_string_store* pstring) const{
   pstring->append(LIGHTUSER_VAR_TO_STRING(_pointer_data).c_str());
@@ -1440,30 +1443,30 @@ void function_var::_init_cfunction(){
   if(_fn_args)
     return;
 
-  _fn_args = __dm->new_class<vararr>();
+  _fn_args = __dm->new_class_dbg<vararr>(DYNAMIC_MANAGEMENT_DEBUG_DATA);
 }
 
 void function_var::_clear_function_data(){
   if(_fn_args){
-    __dm->delete_class(_fn_args);
+    __dm->delete_class_dbg(_fn_args, DYNAMIC_MANAGEMENT_DEBUG_DATA);
     _fn_args = NULL;
     _this_fn = NULL;
   }
 
   if(_fref){
-    __dm->delete_class(_fref);
+    __dm->delete_class_dbg(_fref, DYNAMIC_MANAGEMENT_DEBUG_DATA);
     _fref = NULL;
     _func_pointer = NULL;
   }
 
   if(_fn_binary_data){
-    __dm->free(_fn_binary_data);
+    __dm->free(_fn_binary_data, DYNAMIC_MANAGEMENT_DEBUG_DATA);
     _fn_binary_data = NULL;
     _fn_binary_data = 0;
   }
 
   if(_fn_binary_name){
-    __dm->free(_fn_binary_name);
+    __dm->free(_fn_binary_name, DYNAMIC_MANAGEMENT_DEBUG_DATA);
     _fn_binary_name = NULL;
   }
 
@@ -1483,7 +1486,7 @@ void function_var::_copy_from_var(const I_function_var* data){
   if(data->is_reference()){
     _lc = *data->get_lua_core();
     _func_pointer = data->get_lua_function_pointer();
-    _fref = __dm->new_class<value_ref>(&_lc, FUNCTION_REFERENCE_INTERNAL_DATA, _get_reference_key(_func_pointer).c_str());
+    _fref = __dm->new_class_dbg<value_ref>(DYNAMIC_MANAGEMENT_DEBUG_DATA, &_lc, FUNCTION_REFERENCE_INTERNAL_DATA, _get_reference_key(_func_pointer).c_str());
 
     return;
   }
@@ -1497,7 +1500,7 @@ void function_var::_copy_from_var(const I_function_var* data){
 
 
 std::string function_var::_get_reference_key(const void* pointer){
-  return format_str("0x%X", (unsigned long long)pointer);
+  return format_str_mem(__dm, "0x%X", (unsigned long long)pointer);
 }
 
 
@@ -1524,7 +1527,7 @@ int function_var::_fn_chunk_data_writer(lua_State* state, const void* p, size_t 
   size_t _prev_size = _fvar->_fn_binary_len;
   size_t _new_size = _prev_size + sz;
   _fvar->_fn_binary_len = _new_size;
-  _fvar->_fn_binary_data = __dm->realloc(_fvar->_fn_binary_data, _new_size);
+  _fvar->_fn_binary_data = __dm->realloc(_fvar->_fn_binary_data, _new_size, DYNAMIC_MANAGEMENT_DEBUG_DATA);
   memcpy(&((char*)_fvar->_fn_binary_data)[_prev_size], p, sz);
   return 0;
 #else
@@ -1575,7 +1578,7 @@ bool function_var::from_state(const core* lc, int stack_idx){
 
   int _type = lc->context->api_varutil->get_special_type(lc->istate, stack_idx);
   if(_type != get_type()){
-    _logger->print_error(format_str("Mismatched type when converting at stack (%d). (%s-%s)\n",
+    _logger->print_error(format_str_mem(__dm, "Mismatched type when converting at stack (%d). (%s-%s)\n",
       stack_idx,
       lc->context->api_value->ttypename(lc->istate, _type),
       lc->context->api_value->ttypename(lc->istate, get_type())
@@ -1590,8 +1593,8 @@ bool function_var::from_state(const core* lc, int stack_idx){
   _lc = *lc;
   _func_pointer = _lc.context->api_value->topointer(_lc.istate, stack_idx);
 
-  _fref = __dm->new_class<value_ref>(&_lc, FUNCTION_REFERENCE_INTERNAL_DATA, _get_reference_key(_func_pointer).c_str());
-  if(_fref->reference_initiated())
+  _fref = __dm->new_class_dbg<value_ref>(DYNAMIC_MANAGEMENT_DEBUG_DATA, &_lc, FUNCTION_REFERENCE_INTERNAL_DATA, _get_reference_key(_func_pointer).c_str());
+  if(!_fref->reference_initiated())
     _fref->set_value(stack_idx);
 
   return true;
@@ -1602,7 +1605,7 @@ bool function_var::from_state_copy(const core* lc, int stack_idx){
 
   int _type = lc->context->api_varutil->get_special_type(lc->istate, stack_idx);
   if(_type != get_type()){
-    _logger->print_error(format_str("Mismatched type when converting at stack (%d). (%s-%s)\n",
+    _logger->print_error(format_str_mem(__dm, "Mismatched type when converting at stack (%d). (%s-%s)\n",
       stack_idx,
       lc->context->api_value->ttypename(lc->istate, _type),
       lc->context->api_value->ttypename(lc->istate, get_type())
@@ -1626,7 +1629,7 @@ bool function_var::from_state_copy(const core* lc, int stack_idx){
       lc->context->api_value->type(lc->istate, -1) != LUA_TLIGHTUSERDATA
     ){
       if(_logger){
-        _logger->print_error(format_str("Function format is invalid (at idx %d). Creating copy will be skipped.", stack_idx).c_str());
+        _logger->print_error(format_str_mem(__dm, "Function format is invalid (at idx %d). Creating copy will be skipped.", stack_idx).c_str());
       }
 
       return false;
@@ -1656,7 +1659,7 @@ bool function_var::from_state_copy(const core* lc, int stack_idx){
     // Check the version first
     if(verify_lua_version(cpplua_get_api_compilation_context(), lc->context)){
       // Prepare the buffer
-      _fn_binary_data = __dm->malloc(0);
+      _fn_binary_data = __dm->malloc(0, DYNAMIC_MANAGEMENT_DEBUG_DATA);
       lc->context->api_util->dump(lc->istate, _fn_chunk_data_writer, this, FUNCTION_LUA_COPY_STRIP_DBG);
 
       // Get function name (by debug functions)
@@ -1669,7 +1672,7 @@ bool function_var::from_state_copy(const core* lc, int stack_idx){
 
       lc->context->api_debug->getinfo(lc->istate, ">n", _idbg);
       size_t _nlen = _idbg->name? strlen(_idbg->name): 0;
-      _fn_binary_name = (char*)__dm->malloc(_nlen+1); // With null-termination character
+      _fn_binary_name = (char*)__dm->malloc(_nlen+1, DYNAMIC_MANAGEMENT_DEBUG_DATA); // With null-termination character
       if(_idbg->name)
         memcpy(_fn_binary_name, _idbg->name, _nlen);
       _fn_binary_name[_nlen] = '\0';
@@ -1697,16 +1700,20 @@ bool function_var::from_state_copy(const core* lc, int stack_idx){
 }
 
 void function_var::push_to_stack(const core* lc) const{
+  // Is reference
   if(is_reference()){
     // Check if target state is in the same state where the reference is put
     if(check_same_runtime(&_lc, lc))
       _fref->push_value_to_stack();
     else // prohibit if the state address (in memory) is not the same
       push_to_stack_copy(lc);
+
+    return;
   }
 
   bool _push_by_create_copy = false;
 
+  // Is copy
   // If C function
   if(is_cfunction()){
     if(!_this_fn){
@@ -1718,7 +1725,7 @@ void function_var::push_to_stack(const core* lc) const{
     // Check the version first
     if(verify_lua_version(cpplua_get_api_compilation_context(), lc->context)){
       // push user function as upvalue
-      lc->context->api_value->pushlightuserdata(lc->istate, _this_fn);
+      lc->context->api_value->pushlightuserdata(lc->istate, (void*)_this_fn);
 
       // END OF LUA_FUNCVAR_START_UPVALUE
 
@@ -1775,9 +1782,9 @@ void function_var::push_to_stack_copy(const core* lc) const{
 
 std::string function_var::to_string() const{
   if(is_cfunction())
-    return format_str("CFunction 0x%X", (unsigned long long)_this_fn);
+    return format_str_mem(__dm, "CFunction 0x%X", (unsigned long long)_this_fn);
   else
-    return format_str("LuaFunction 0x%X", (unsigned long long)_func_pointer);
+    return format_str_mem(__dm, "LuaFunction 0x%X", (unsigned long long)_func_pointer);
 }
 
 void function_var::to_string(I_string_store* pstring) const{
@@ -1840,11 +1847,11 @@ void function_var::reset_luafunction(const void* chunk_buf, size_t len, const ch
   _clear_function_data();
 
   _fn_binary_len = len;
-  _fn_binary_data = __dm->malloc(len);
+  _fn_binary_data = __dm->malloc(len, DYNAMIC_MANAGEMENT_DEBUG_DATA);
   memcpy(_fn_binary_data, chunk_buf, len);
 
   size_t _name_len = chunk_name? strlen(chunk_name): 0;
-  _fn_binary_name = (char*)__dm->malloc(_name_len+1); // with null-termination character
+  _fn_binary_name = (char*)__dm->malloc(_name_len+1, DYNAMIC_MANAGEMENT_DEBUG_DATA); // with null-termination character
   if(chunk_name)
     memcpy(_fn_binary_name, chunk_name, _name_len);
   _fn_binary_name[_name_len] = '\0';
@@ -1872,7 +1879,7 @@ int function_var::run_function(const core* lc, const I_vararr* args, I_vararr* r
     int _previous_stack = lc->context->api_stack->gettop(lc->istate);
 
     _this->push_to_stack(lc);
-    if(lc->context->api_value->type(lc->istate, -1) == LUA_TNIL)
+    if(lc->context->api_value->type(lc->istate, -1) != LUA_TFUNCTION)
       return -1;
     
     for(int i = 0; i < args->get_var_count(); i++)
@@ -1989,7 +1996,7 @@ std::string error_var::to_string() const{
     return "nil";
 
   std::string _err_str = _err_data->to_string();
-  return format_str("(%d) %s", _error_code, _err_str.c_str());
+  return format_str_mem(__dm, "(%d) %s", _error_code, _err_str.c_str());
 }
 
 
@@ -2044,12 +2051,12 @@ void object_var::_copy_from_var(const I_object_var* data){
   if(!_obj)
     return;
 
-  _oref = __dm->new_class<value_ref>(&_lc, OBJECT_REFERENCE_INTERNAL_DATA, _get_reference_key(_obj).c_str());
+  _oref = __dm->new_class_dbg<value_ref>(DYNAMIC_MANAGEMENT_DEBUG_DATA, &_lc, OBJECT_REFERENCE_INTERNAL_DATA, _get_reference_key(_obj).c_str());
 }
 
 void object_var::_clear_object(){
   if(_oref){
-    __dm->delete_class(_oref);
+    __dm->delete_class_dbg(_oref, DYNAMIC_MANAGEMENT_DEBUG_DATA);
     _oref = NULL;
   }
 
@@ -2058,7 +2065,7 @@ void object_var::_clear_object(){
 
 
 std::string object_var::_get_reference_key(void* idata){
-  return format_str("0x%X", idata);
+  return format_str_mem(__dm, "0x%X", idata);
 }
 
 
@@ -2072,7 +2079,7 @@ bool object_var::from_state(const core* lc, int stack_idx){
 
   int _type = lc->context->api_varutil->get_special_type(lc->istate, stack_idx);
   if(_type != get_type()){
-    _logger->print_error(format_str("Mismatched type when converting at stack (%d). (%s-%s)\n",
+    _logger->print_error(format_str_mem(__dm, "Mismatched type when converting at stack (%d). (%s-%s)\n",
       stack_idx,
       lc->context->api_value->ttypename(lc->istate, _type),
       lc->context->api_value->ttypename(lc->istate, get_type())
@@ -2087,7 +2094,7 @@ bool object_var::from_state(const core* lc, int stack_idx){
 
   _lc = *lc;
   _obj = _test_obj;
-  _oref = __dm->new_class<value_ref>(&_lc, OBJECT_REFERENCE_INTERNAL_DATA, _get_reference_key(_obj).c_str());
+  _oref = __dm->new_class_dbg<value_ref>(DYNAMIC_MANAGEMENT_DEBUG_DATA, &_lc, OBJECT_REFERENCE_INTERNAL_DATA, _get_reference_key(_obj).c_str());
 
   return true;
 }
@@ -2097,7 +2104,7 @@ bool object_var::from_object_reference(const core* lc, I_object* obj){
 
   _lc = *lc;
   _obj = obj;
-  _oref = __dm->new_class<value_ref>(&_lc, OBJECT_REFERENCE_INTERNAL_DATA, _get_reference_key(_obj).c_str());
+  _oref = __dm->new_class_dbg<value_ref>(DYNAMIC_MANAGEMENT_DEBUG_DATA, &_lc, OBJECT_REFERENCE_INTERNAL_DATA, _get_reference_key(_obj).c_str());
   if(!_oref->reference_initiated()){
     _lc.context->api_value->newtable(_lc.istate);
     _lc.context->api_objutil->push_object_to_table(_lc.istate, _obj, -1);
@@ -2231,31 +2238,31 @@ const variant* comparison_variant::get_comparison_data() const{
 lua::variant* cpplua_create_var_copy(const lua::I_variant* data){
   switch(data->get_type()){
     break; case string_var::get_static_lua_type():
-      return __dm->new_class<string_var>(dynamic_cast<const I_string_var*>(data));
+      return __dm->new_class_dbg<string_var>(DYNAMIC_MANAGEMENT_DEBUG_DATA, dynamic_cast<const I_string_var*>(data));
 
     break; case number_var::get_static_lua_type():
-      return __dm->new_class<number_var>(dynamic_cast<const I_number_var*>(data));
+      return __dm->new_class_dbg<number_var>(DYNAMIC_MANAGEMENT_DEBUG_DATA, dynamic_cast<const I_number_var*>(data));
 
     break; case bool_var::get_static_lua_type():
-      return __dm->new_class<bool_var>(dynamic_cast<const I_bool_var*>(data));
+      return __dm->new_class_dbg<bool_var>(DYNAMIC_MANAGEMENT_DEBUG_DATA, dynamic_cast<const I_bool_var*>(data));
 
     break; case table_var::get_static_lua_type():
-      return __dm->new_class<table_var>(dynamic_cast<const I_table_var*>(data));
+      return __dm->new_class_dbg<table_var>(DYNAMIC_MANAGEMENT_DEBUG_DATA, dynamic_cast<const I_table_var*>(data));
 
     break; case lightuser_var::get_static_lua_type():
-      return __dm->new_class<lightuser_var>(dynamic_cast<const I_lightuser_var*>(data));
+      return __dm->new_class_dbg<lightuser_var>(DYNAMIC_MANAGEMENT_DEBUG_DATA, dynamic_cast<const I_lightuser_var*>(data));
 
     break; case error_var::get_static_lua_type():
-      return __dm->new_class<error_var>(dynamic_cast<const I_error_var*>(data));
+      return __dm->new_class_dbg<error_var>(DYNAMIC_MANAGEMENT_DEBUG_DATA, dynamic_cast<const I_error_var*>(data));
 
     break; case object_var::get_static_lua_type():
-      return __dm->new_class<object_var>(dynamic_cast<const I_object_var*>(data));
+      return __dm->new_class_dbg<object_var>(DYNAMIC_MANAGEMENT_DEBUG_DATA, dynamic_cast<const I_object_var*>(data));
 
     break; case function_var::get_static_lua_type():
-      return __dm->new_class<function_var>(dynamic_cast<const I_function_var*>(data));
+      return __dm->new_class_dbg<function_var>(DYNAMIC_MANAGEMENT_DEBUG_DATA, dynamic_cast<const I_function_var*>(data));
 
     break; default:
-      return __dm->new_class<nil_var>();
+      return __dm->new_class_dbg<nil_var>(DYNAMIC_MANAGEMENT_DEBUG_DATA);
   }
 }
 
@@ -2267,5 +2274,5 @@ DLLEXPORT void CPPLUA_VARIANT_SET_DEFAULT_LOGGER(I_logger* _logger){
 }
 
 DLLEXPORT void CPPLUA_DELETE_VARIANT(const lua::I_variant* data){
-  __dm->delete_class(data);
+  __dm->delete_class_dbg(dynamic_cast<const variant*>(data), DYNAMIC_MANAGEMENT_DEBUG_DATA);
 }

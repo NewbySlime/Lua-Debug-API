@@ -8,3 +8,10 @@ Prefered variable/class/struct name declaration:
 When to develop using lua::api::core and lua_State:
   Preferably, use lua_State for every part of the library when it is only referenced and used inside the shared library. But when a part of the library also included both in static and dynamic library, use abstraction context such as lua::api::core. For example, usage in lua::variant.
   Libraries or any I_object should use lua::api::core due to a possibility of changes in Lua version. Technically, I_object is a part of object_var. For dependecies purposes, it is encouraged that the library objects uses lua::api::core.
+
+Notes when developing the API:
+  Looping inside thread created specifically for running Lua code, should check the thread if the thread is signalled to stop.
+  
+
+Notes when using dynamic memory:
+  At all times, use dynamic_management used by Lua CPP API.

@@ -6,7 +6,7 @@
 
 
 namespace lua::memory{
-  const ::memory::dynamic_management* get_memory_manager();
+  ::memory::I_dynamic_management* get_memory_manager();
 
   const ::memory::memory_management_config* get_memory_manager_config();
   void set_memory_manager_config(const ::memory::memory_management_config* config);

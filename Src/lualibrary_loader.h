@@ -7,6 +7,7 @@
 
 
 namespace lua{
+  // [Not Thread-Safe]
   class I_library_loader{
     public:
       virtual bool load_library(const char* lib_name, I_object* lib_object) = 0;

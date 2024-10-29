@@ -26,12 +26,25 @@ class _api_runtime_function: public I_runtime{
       cpplua_delete_library_loader(object);
     }
 
-    lua::I_runtime_handler* create_runtime_handler(const char* lua_path, bool immediate_run, bool load_library) override{
-      return cpplua_create_runtime_handler(lua_path, immediate_run, load_library);
+    lua::I_runtime_handler* create_runtime_handler(const char* lua_path, bool load_library) override{
+      return cpplua_create_runtime_handler(lua_path, load_library);
     }
 
     void delete_runtime_handler(lua::I_runtime_handler* object) override{
       return cpplua_delete_runtime_handler(object);
+    }
+
+
+    lua::global::I_print_override* get_print_override_instance(void* istate) override{
+      return print_override::get_attached_object((lua_State*)istate);
+    }
+
+    lua::I_library_loader* get_library_loader_instance(void* istate) override{
+      return library_loader::get_attached_object((lua_State*)istate);
+    }
+
+    lua::I_runtime_handler* get_runtime_handler_instance(void* istate) override{
+      return runtime_handler::get_attached_object((lua_State*)istate);
     }
 };
 

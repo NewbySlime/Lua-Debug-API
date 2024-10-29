@@ -8,10 +8,11 @@
 
 namespace lua::api{
   class I_memory_util{
-    virtual const ::memory::I_dynamic_management* get_memory_manager() = 0;
+    public:
+      virtual ::memory::I_dynamic_management* get_memory_manager() = 0;
 
-    virtual const ::memory::memory_management_config* get_memory_manager_config() = 0;
-    virtual void set_memory_manager_config(const ::memory::memory_management_config* config) = 0;
+      virtual const ::memory::memory_management_config* get_memory_manager_config() = 0;
+      virtual void set_memory_manager_config(const ::memory::memory_management_config* config) = 0;
   };
 }
 

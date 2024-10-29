@@ -7,6 +7,7 @@
 
 // This code will be statically bind to the compilation file
 // If a code returns an interface (I_xx) create a copy with using statically linked compilation function if the code that returns comes from dynamic library
+// NOTE: Objects in the code is not Thread-Safe.
 
 namespace lua{
   class I_vararr{

@@ -4,8 +4,9 @@
 #include "I_debug_user.h"
 #include "library_linking.h"
 #include "luaincludes.h"
-#include "luavariant_arr.h"
 #include "luavariant.h"
+#include "luavariant_arr.h"
+#include "luavariant_util.h"
 #include "luadebug_hookhandler.h"
 #include "macro_helper.h"
 #include "string_util.h"
@@ -136,7 +137,7 @@ namespace lua{
         lua_getglobal(_this_state, function_name);
         if(lua_type(_this_state, -1) != LUA_TFUNCTION){
           if(_current_logger){
-            _current_logger->print_error(format_str("Variable (%s) is not a function.\n", function_name));
+            _current_logger->print_error(format_str("Variable (%s) is not a function.\n", function_name).c_str());
           }
 
           goto on_error_label;
@@ -168,7 +169,7 @@ namespace lua{
         auto _iter = _c_metadata_map.find(function_name);
         if(_iter != _c_metadata_map.end()){
           if(_current_logger){
-            _current_logger->print_error(format_str("Function (%s) already exposed to lua.\n", function_name));
+            _current_logger->print_error(format_str("Function (%s) already exposed to lua.\n", function_name).c_str());
           }
 
           return false;
@@ -192,7 +193,7 @@ namespace lua{
           for(int i = 0; i < _arg_size; i++){
             int _stack_idx = -1-(_arg_size-i-1);
 
-            _list.set_idx(i, to_variant(state, _stack_idx));
+            _list.set_idx(i, lua::to_variant(state, _stack_idx));
           }
 
           var_result _result = _call_c_function<_arg_size, _arg_size-1, var_result>(&_list, func_cb);
@@ -219,7 +220,7 @@ namespace lua{
         auto _iter = _lua_metadata_map.find(function_name);
         if(_iter == _lua_metadata_map.end()){
           if(_current_logger){
-            _current_logger->print_error(format_str("Cannot get Function metadata of (%s).", function_name));
+            _current_logger->print_error(format_str("Cannot get Function metadata of (%s).", function_name).c_str());
           }
 
           goto on_error_label;
@@ -234,14 +235,14 @@ namespace lua{
                   function_name,
                   _curr_idx+1,
                   _iter->second->_func_args_type.size()
-                ));
+                ).c_str());
               else if(args->get_type() != _iter->second->_func_args_type[_curr_idx])
                 _current_logger->print_warning(format_str("Function (%s), Argument #%d mismatched type. (%s:%s)\n",
                   function_name,
                   _curr_idx,
                   lua_typename(_this_state, args->get_type()),
                   lua_typename(_this_state, _iter->second->_func_args_type[_curr_idx])
-                ));
+                ).c_str());
             }
 
             args->push_to_stack(_this_state);

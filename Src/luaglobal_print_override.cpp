@@ -22,7 +22,7 @@ using namespace ::memory;
 
 #ifdef LUA_CODE_EXISTS
 
-static const dynamic_management* __dm = get_memory_manager();
+static const I_dynamic_management* __dm = get_memory_manager();
 
 
 // MARK: lua::global::print_override
@@ -37,7 +37,7 @@ print_override::print_override(lua_State* state){
 
   print_override* _current_obj = get_attached_object(state);
   if(_current_obj){
-    _logger->print(format_str("Cannot create print_override. Reason: lua_State already has print_override.\n").c_str());
+    _logger->print(format_str_mem(__dm, "Cannot create print_override. Reason: lua_State already has print_override.\n").c_str());
     return;
   }
 
@@ -167,7 +167,7 @@ unsigned long print_override::read_all(I_string_store* store){
   if(_data_len <= 0)
     return 0;
 
-  char* _tmp_buf = (char*)__dm->malloc(_data_len);
+  char* _tmp_buf = (char*)__dm->malloc(_data_len, DYNAMIC_MANAGEMENT_DEBUG_DATA);
 
   __LOCK_MUTEX(_class_mutex);
 
@@ -186,13 +186,13 @@ unsigned long print_override::read_all(I_string_store* store){
   
   store->append(_tmp_buf, _read_len);
 
-  __dm->free(_tmp_buf);
+  __dm->free(_tmp_buf, DYNAMIC_MANAGEMENT_DEBUG_DATA);
   return _read_len;
 }
 
 std::string print_override::read_all(){
   unsigned long _data_len = available_bytes();
-  char* _tmp_buf = (char*)__dm->malloc(_data_len);
+  char* _tmp_buf = (char*)__dm->malloc(_data_len, DYNAMIC_MANAGEMENT_DEBUG_DATA);
 
   unsigned long _read_len;
 
@@ -212,7 +212,7 @@ std::string print_override::read_all(){
 
   std::string _result = std::string(_tmp_buf, _read_len);
 
-  __dm->free(_tmp_buf);
+  __dm->free(_tmp_buf, DYNAMIC_MANAGEMENT_DEBUG_DATA);
   return _result;
 }
 
@@ -241,7 +241,7 @@ unsigned long print_override::peek_n(char* buffer, unsigned long buffer_size){
 
 unsigned long print_override::peek_all(I_string_store* store){
   unsigned long _data_len = available_bytes();
-  char* _tmp_buf = (char*)__dm->malloc(_data_len);
+  char* _tmp_buf = (char*)__dm->malloc(_data_len, DYNAMIC_MANAGEMENT_DEBUG_DATA);
 
   unsigned long _read_len;
 
@@ -262,13 +262,13 @@ unsigned long print_override::peek_all(I_string_store* store){
 
   store->append(_tmp_buf, _read_len);
 
-  __dm->free(_tmp_buf);
+  __dm->free(_tmp_buf, DYNAMIC_MANAGEMENT_DEBUG_DATA);
   return _read_len;
 }
 
 std::string print_override::peek_all(){
   unsigned long _data_len = available_bytes();
-  char* _tmp_buf = (char*)__dm->malloc(_data_len);
+  char* _tmp_buf = (char*)__dm->malloc(_data_len, DYNAMIC_MANAGEMENT_DEBUG_DATA);
 
   __LOCK_MUTEX(_class_mutex);
   
@@ -288,7 +288,7 @@ std::string print_override::peek_all(){
   
   std::string _result = std::string(_tmp_buf, _read_len);
 
-  __dm->free(_tmp_buf);
+  __dm->free(_tmp_buf, DYNAMIC_MANAGEMENT_DEBUG_DATA);
   return _result;
 }
 
@@ -326,6 +326,11 @@ void print_override::remove_event_read(HANDLE event){
 #endif
 
 
+void* print_override::get_lua_interface_state() const{
+  return _this_state;
+}
+
+
 void print_override::set_logger(I_logger* logger){
   __LOCK_MUTEX(_class_mutex);
   _logger = logger;
@@ -337,11 +342,11 @@ void print_override::set_logger(I_logger* logger){
 // MARK: DLL functions
 
 DLLEXPORT lua::global::I_print_override* CPPLUA_CREATE_GLOBAL_PRINT_OVERRIDE(void* state){
-  return __dm->new_class<print_override>((lua_State*)state);
+  return __dm->new_class_dbg<print_override>(DYNAMIC_MANAGEMENT_DEBUG_DATA, (lua_State*)state);
 }
 
 DLLEXPORT void CPPLUA_DELETE_GLOBAL_PRINT_OVERRIDE(lua::global::I_print_override* obj){
-  __dm->delete_class(obj);
+  __dm->delete_class_dbg(obj, DYNAMIC_MANAGEMENT_DEBUG_DATA);
 }
 
 #endif // LUA_CODE_EXISTS

@@ -18,7 +18,7 @@ using namespace ::memory;
 
 #ifdef LUA_CODE_EXISTS
 
-static const dynamic_management* __dm = get_memory_manager();
+static const I_dynamic_management* __dm = get_memory_manager();
 
 
 library_loader::library_loader(lua_State* state){
@@ -136,11 +136,11 @@ void library_loader::set_logger(I_logger* logger){
 // MARK: DLL definitions
 
 DLLEXPORT lua::I_library_loader* CPPLUA_CREATE_LIBRARY_LOADER(void* istate){
-  return __dm->new_class<library_loader>((lua_State*)istate);
+  return __dm->new_class_dbg<library_loader>(DYNAMIC_MANAGEMENT_DEBUG_DATA, (lua_State*)istate);
 }
 
 DLLEXPORT void CPPLUA_DELETE_LIBRARY_LOADER(lua::I_library_loader* object){
-  __dm->delete_class(object);
+  __dm->delete_class_dbg(object, DYNAMIC_MANAGEMENT_DEBUG_DATA);
 }
 
 #endif // LUA_CODE_EXISTS

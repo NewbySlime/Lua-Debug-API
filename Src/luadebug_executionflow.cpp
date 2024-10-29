@@ -7,6 +7,7 @@
 #include "luaruntime_handler.h"
 #include "luavariant_util.h"
 #include "std_logger.h"
+#include "string_util.h"
 
 
 using namespace lua;
@@ -20,109 +21,113 @@ using namespace ::memory;
 
 #define FILE_PATH_MAX_BUFFER_SIZE 1024
 
-#define LUD_EXECUTION_FLOW_VARNAME "__clua_execution_flow_data"
-
 #define FNAME_TAILCALLED_FLAG " (tailcalled)"
 
 
 #ifdef LUA_CODE_EXISTS
 
-static const dynamic_management* __dm = get_memory_manager();
+static const I_dynamic_management* __dm = get_memory_manager();
 
 
 // MARK: lua::debug::execution_flow
-execution_flow::execution_flow(lua_State* state){
-  _hook_handler = hook_handler::get_this_attached(state);
-  _this_state = NULL;
+execution_flow::execution_flow(hook_handler* hook){
   _logger = get_std_logger();
 
-  if(!state){
-    _logger->print_error("Cannot bind execution_flow to lua_State. Reason: lua_State provided is NULL.\n");
-    return;
-  }
+#if (_WIN64) || (_WIN32)
+  _object_mutex_ptr = &_object_mutex;
+  InitializeCriticalSection(_object_mutex_ptr);
+  _execution_block_event = CreateEvent(NULL, false, false, NULL);
+  _self_pause_event = CreateEvent(NULL, false, false, NULL);
+  _self_resume_event = CreateEvent(NULL, false, false, NULL);
 
-  execution_flow* _check_obj = get_attached_obj(state);
-  if(_check_obj){
-    _logger->print_warning("Cannot bind execution_flow to lua_State. Reason: Another obj already bound to lua_State.\n");
-    return;
-  }
+  register_event_pausing(_self_pause_event);
+  register_event_resuming(_self_resume_event);
+#endif
 
-  if(!_hook_handler){
-    _logger->print_error("Cannot bind execution_flow to lua_State. Reason: Cannot get bound hook_handler in lua_State.\n");
-    return;
-  }
-
-  _this_state = state;
+  _hook_handler = hook;
   _hook_handler->set_hook(LUA_MASKCALL | LUA_MASKRET | LUA_MASKLINE | LUA_MASKCOUNT, _hookcb_static, this);
-
-  _set_bind_obj(this, state);
   
   _current_file_path.reserve(FILE_PATH_MAX_BUFFER_SIZE);
 }
 
 execution_flow::~execution_flow(){
-  if(!_this_state)
-    return;
-
   _hook_handler->remove_hook(this);
-  _set_bind_obj(NULL, _this_state);
-
   while(_function_layer.size() > 0){
     auto _iter = _function_layer.end()-1;
     _function_data* _data = *_iter;
     
     _function_layer.erase(_iter);
-    __dm->delete_class(_data);
+    __dm->delete_class_dbg(_data, DYNAMIC_MANAGEMENT_DEBUG_DATA);
   }
 
   if(currently_pausing())
     resume_execution();
+
+#if (_WIN64) || (_WIN32)
+  remove_event_pausing(_self_pause_event);
+  remove_event_resuming(_self_resume_event);
+
+  CloseHandle(_self_pause_event);
+  CloseHandle(_self_resume_event);
+  CloseHandle(_execution_block_event);
+  DeleteCriticalSection(_object_mutex_ptr);
+#endif
 }
 
 
-bool execution_flow::_check_running_thread(){
-  runtime_handler* _handler = runtime_handler::get_attached_object(_this_state);
-
+void execution_flow::_lock_object() const{
 #if (_WIN64) || (_WIN32)
-  if(_handler)
-    return _handler->get_running_thread_id() != GetCurrentThreadId();
-  
-  return true;
+  EnterCriticalSection(_object_mutex_ptr);
+#endif
+}
+
+void execution_flow::_unlock_object() const{
+#if (_WIN64) || (_WIN32)
+  LeaveCriticalSection(_object_mutex_ptr);
 #endif
 }
 
 
 void execution_flow::_update_tmp_current_fname(){
+  _lock_object();
+{ // enclosure for using gotos
   if(_function_layer.size() <= 0){
     _tmp_current_fname = "";
-    return;
+    goto skip_to_return;
   }
 
   _function_data* _data = *(_function_layer.end()-1);
   _tmp_current_fname = _data->name + (_data->is_tailcall? FNAME_TAILCALLED_FLAG: "");
+} // enclosure closing
+
+  skip_to_return:{}
+  _unlock_object();
 }
 
 
 void execution_flow::_block_execution(){
-  std::unique_lock<std::mutex> _ulock(_execution_mutex);
-
-  _currently_executing = false;
+  _lock_object();
 #if (_WIN64) || (_WIN32)
   for(HANDLE hevent: _event_pausing)
     SetEvent(hevent);
 #endif
+  _currently_executing = false;
+  _unlock_object();
 
-  _execution_block.wait(_ulock);
+  WaitForSingleObject(_execution_block_event, INFINITE);
 
+  _lock_object();
   _currently_executing = true;
 #if (_WIN64) || (_WIN32)
   for(HANDLE hevent: _event_resuming)
     SetEvent(hevent);
 #endif
+  _unlock_object();
 }
 
 
 void execution_flow::_hookcb(){
+  _lock_object();
   _currently_executing = true;
   const lua_Debug* _debug_data = _hook_handler->get_current_debug_value();
   _current_line = _debug_data->currentline;
@@ -148,7 +153,7 @@ void execution_flow::_hookcb(){
     }
 
     break; case LUA_HOOKCALL:{
-      _function_data* _new_data = __dm->new_class<_function_data>();
+      _function_data* _new_data = __dm->new_class_dbg<_function_data>(DYNAMIC_MANAGEMENT_DEBUG_DATA);
       _new_data->name = _debug_data->name? _debug_data->name: "???";
       _new_data->is_tailcall = false;
 
@@ -165,15 +170,16 @@ void execution_flow::_hookcb(){
       _function_data* _data = *_iter;
 
       _function_layer.erase(_iter);
-      __dm->delete_class(_data);
+      __dm->delete_class_dbg(_data, DYNAMIC_MANAGEMENT_DEBUG_DATA);
 
       _update_tmp_current_fname();
     }
   }
+  _unlock_object();
 
   if(!_do_block)
     return;
-
+  
   if(_stepping_type != st_none){
     switch(_debug_data->event){
       break; case LUA_HOOKCOUNT:{
@@ -212,94 +218,48 @@ void execution_flow::_hookcb(){
   _block_execution();
 }
 
-
-void execution_flow::_set_bind_obj(execution_flow* obj, lua_State* state){
-  require_internal_storage(state); // s+1
-  lua_pushstring(state, LUD_EXECUTION_FLOW_VARNAME); // s+1
-  lua_gettable(state, -2); // s-1+1
-  if(lua_type(state, -1) != LUA_TTABLE){
-    lua_pop(state, 1); // s-1
-    lua_newtable(state); // s+1
-
-    lua_pushstring(state, LUD_EXECUTION_FLOW_VARNAME); // s+1
-    lua_pushvalue(state, -2); // s+1
-    lua_settable(state, -4); // s-2
-  }
-
-  string_var _key_var = from_pointer_to_str(state);
-  lightuser_var _value_var = lightuser_var(obj);
-
-  // possible multiple object in one state for in case of multi threading
-  set_table_value(state, -1, &_key_var, &_value_var);
-
-  // pop the global table
-  lua_pop(state, 1); // s-1
-}
-
-
 void execution_flow::_hookcb_static(lua_State* state, void* cb_data){
   ((execution_flow*)cb_data)->_hookcb();
 }
 
 
-execution_flow* execution_flow::get_attached_obj(lua_State* state){
-  execution_flow* _result = NULL;
-
-  require_internal_storage(state); // s+1
-  lua_pushstring(state, LUD_EXECUTION_FLOW_VARNAME); // s+1
-  lua_gettable(state, -2); // s-1+1
-  if(lua_type(state, -1) != LUA_TTABLE)
-    goto skip_checking_label;
-
-  try{
-    string_var _key_var = from_pointer_to_str(state);
-
-    variant* _value = get_table_value(state, -1, &_key_var);
-    if(_value->get_type() == LUA_TLIGHTUSERDATA)
-      _result = (execution_flow*)((lightuser_var*)_value)->get_data();
-  }
-  catch(std::exception* e){
-    printf(e->what());
-    __dm->delete_class(e);
-  }
-
-  skip_checking_label:{}
-
-  lua_pop(state, 1); // s-1
-  return _result;
-}
-
-
 void execution_flow::set_step_count(int count){
-  if(!_this_state)
-    return;
-
   _hook_handler->set_count(count);
 }
 
 int execution_flow::get_step_count() const{
-  if(!_this_state)
-    return -1;
-
   return _hook_handler->get_count();
 }
 
 
 unsigned int execution_flow::get_function_layer() const{
-  return _function_layer.size();
+  unsigned int _result;
+  _lock_object();
+  _result = _function_layer.size();
+  _unlock_object();
+  return _result;
 }
 
 
 const char* execution_flow::get_function_name() const{
+  if(_currently_executing)
+    return NULL;
+
   return _tmp_current_fname.c_str();
 }
 
 
 int execution_flow::get_current_line() const{
+  if(_currently_executing)  
+    return -1;
+
   return _current_line;
 }
 
 const char* execution_flow::get_current_file_path() const{
+  if(_currently_executing)
+    return NULL;
+
   return _current_file_path.c_str();
 }
 
@@ -309,57 +269,39 @@ bool execution_flow::set_function_name(int layer_idx, const char* name){
 }
 
 bool execution_flow::set_function_name(int layer_idx, const std::string& name){
-  if(layer_idx < 0 || layer_idx >= _function_layer.size())
+  if(_currently_executing || layer_idx < 0 || layer_idx >= _function_layer.size())
     return false;
 
+  _lock_object();
   _function_data* _data = _function_layer[layer_idx];
 
   _data->name = name;
 
   if(layer_idx == (_function_layer.size()-1))
     _update_tmp_current_fname();
+  _unlock_object();
 
   return true;
 }
 
 
-// ret_val keep empty if returns void
-#define PROHIBIT_SAME_THREAD_EXECUTION_CHECK(ret_val) \
-  if(!_check_running_thread()){ \
-    if(_logger) \
-      _logger->print_error("[execution_flow] Calling function " __FUNCTION__ " using same running thread is prohibited.\n"); \
-    return ret_val; \
-  }
-
-#define VOID_RET 
-
 void execution_flow::block_execution(){
-  if(!_this_state)
-    return;
-  
-  PROHIBIT_SAME_THREAD_EXECUTION_CHECK(VOID_RET)
-    
   _do_block = true;
   _stepping_type = st_none;
 }
 
 void execution_flow::resume_execution(){
-  if(!_this_state)
-    return;
-
-  PROHIBIT_SAME_THREAD_EXECUTION_CHECK(VOID_RET)
-    
   _do_block = false;
-  _execution_block.notify_all();
+#if (_WIN64) || (_WIN32)
+  SetEvent(_execution_block_event);
+#endif
 }
 
 void execution_flow::step_execution(step_type st){
-  if(!_this_state)
-    return;
-
-  PROHIBIT_SAME_THREAD_EXECUTION_CHECK(VOID_RET)
-
-  block_execution();
+  if(_currently_executing){
+    block_execution();
+    WaitForSingleObject(_self_pause_event, INFINITE);
+  }
 
   _stepping_type = st;
   switch(st){
@@ -376,7 +318,7 @@ void execution_flow::step_execution(step_type st){
     }
   }
 
-  _execution_block.notify_all();
+  SetEvent(_execution_block_event);
 }
 
 
@@ -387,26 +329,34 @@ bool execution_flow::currently_pausing(){
 
 #if (_WIN64) || (_WIN32)
 void execution_flow::register_event_resuming(HANDLE hevent){
+  _lock_object();
   _event_resuming.insert(hevent);
+  _unlock_object();
 }
 
 void execution_flow::remove_event_resuming(HANDLE hevent){
+  _lock_object();
   _event_resuming.erase(hevent);
+  _unlock_object();
 }
 
 
 void execution_flow::register_event_pausing(HANDLE hevent){
+  _lock_object();
   _event_pausing.insert(hevent);
+  _unlock_object();
 }
 
 void execution_flow::remove_event_pausing(HANDLE hevent){
+  _lock_object();
   _event_pausing.erase(hevent);
+  _unlock_object();
 }
 #endif
 
 
 const lua_Debug* execution_flow::get_debug_data() const{
-  if(!_this_state)
+  if(_currently_executing)
     return NULL;
     
   return _hook_handler->get_current_debug_value();
@@ -414,21 +364,7 @@ const lua_Debug* execution_flow::get_debug_data() const{
 
 
 void execution_flow::set_logger(I_logger* logger){
-  if(!_this_state)
-    return;
-    
   _logger = logger;
-}
-
-
-// MARK: DLL definitions
-
-DLLEXPORT lua::debug::I_execution_flow* CPPLUA_CREATE_EXECUTION_FLOW(void* istate){
-  return __dm->new_class<execution_flow>((lua_State*)istate);
-}
-
-DLLEXPORT void CPPLUA_DELETE_EXECUTION_FLOW(lua::debug::I_execution_flow* object){
-  __dm->delete_class(object);
 }
 
 #endif // LUA_CODE_EXISTS

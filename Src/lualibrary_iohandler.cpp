@@ -3,6 +3,7 @@
 #include "luaapi_util.h"
 #include "luaapi_variant_util.h"
 #include "lualibrary_iohandler.h"
+#include "luamemory_util.h"
 #include "luaobject_util.h"
 #include "luatable_util.h"
 #include "luautility.h"
@@ -15,6 +16,11 @@
 #include "chrono"
 #include "memory"
 #include "set"
+
+#if (_WIN64) || (_WIN32)
+#include "Windows.h"
+#include "winerror.h"
+#endif
 
 
 #define IO_HANDLER_STDOUT_VARNAME "stdout"
@@ -35,6 +41,7 @@ using namespace error::util;
 using namespace lua;
 using namespace lua::api;
 using namespace lua::library;
+using namespace lua::memory;
 using namespace lua::object;
 using namespace lua::utility;
 using namespace ::memory;
@@ -42,8 +49,7 @@ using namespace ::memory;
 
 #ifdef LUA_CODE_EXISTS
 
-static const memory_management_config _def_memman_config(malloc, free);
-static dynamic_management __dm(&_def_memman_config);
+static I_dynamic_management* __dm = get_memory_manager();
 
 
 // MARK: Library DLL variables
@@ -51,19 +57,19 @@ static dynamic_management __dm(&_def_memman_config);
 static std::map<std::string, file_handler::seek_opt>* _seek_keyword_parser = NULL;
 static std::map<std::string, file_handler::buffering_mode>* _buffering_keyword_parser = NULL;
 
-void _deinitialize_file_handler_static_vars();
+static void _deinitialize_file_handler_static_vars();
 destructor_helper _dh_file_handler(_deinitialize_file_handler_static_vars);
 
 static void _initialize_file_handler_static_vars(){
   if(!_seek_keyword_parser){
-    _seek_keyword_parser = __dm.new_class<std::map<std::string, file_handler::seek_opt>>();
+    _seek_keyword_parser = __dm->new_class_dbg<std::map<std::string, file_handler::seek_opt>>(DYNAMIC_MANAGEMENT_DEBUG_DATA);
       _seek_keyword_parser->insert({"set", file_handler::seek_begin});
       _seek_keyword_parser->insert({"cur", file_handler::seek_current});
       _seek_keyword_parser->insert({"end", file_handler::seek_end});
   }
 
   if(!_buffering_keyword_parser){
-    _buffering_keyword_parser = __dm.new_class<std::map<std::string, file_handler::buffering_mode>>();
+    _buffering_keyword_parser = __dm->new_class_dbg<std::map<std::string, file_handler::buffering_mode>>(DYNAMIC_MANAGEMENT_DEBUG_DATA);
       _buffering_keyword_parser->insert({"no", file_handler::buffering_none});
       _buffering_keyword_parser->insert({"full", file_handler::buffering_full});
       _buffering_keyword_parser->insert({"line", file_handler::buffering_line});
@@ -72,12 +78,12 @@ static void _initialize_file_handler_static_vars(){
 
 static void _deinitialize_file_handler_static_vars(){
   if(_seek_keyword_parser){
-    __dm.delete_class(_seek_keyword_parser);
+    __dm->delete_class_dbg(_seek_keyword_parser, DYNAMIC_MANAGEMENT_DEBUG_DATA);
     _seek_keyword_parser = NULL;
   }
 
   if(_buffering_keyword_parser){
-    __dm.delete_class(_buffering_keyword_parser);
+    __dm->delete_class_dbg(_buffering_keyword_parser, DYNAMIC_MANAGEMENT_DEBUG_DATA);
     _buffering_keyword_parser = NULL;
   }
 }
@@ -105,6 +111,7 @@ static const fdata _io_handler_fdata[] = {
 
 #define IO_HANDLER_REPLACE_DEF_FILE(def_file) \
   io_handler* _this = dynamic_cast<io_handler*>(obj); \
+  _this->lock_object(); \
   _this->_clear_error(); \
    \
 { /* enclosure for using goto */ \
@@ -134,10 +141,10 @@ static const fdata _io_handler_fdata[] = {
       /* set default input file from file name */ \
       break; case I_string_var::get_static_lua_type():{ \
         const I_string_var* _strvar = dynamic_cast<const I_string_var*>(_check_var); \
-        file_handler* _tmp_obj = __dm.new_class<file_handler>(&_this->_lc, _strvar->get_string(), file_handler::open_read); \
+        file_handler* _tmp_obj = __dm->new_class_dbg<file_handler>(DYNAMIC_MANAGEMENT_DEBUG_DATA, &_this->_lc, _strvar->get_string(), file_handler::open_read); \
         if(_tmp_obj->get_last_error()){ \
           _this->_copy_error_from(_tmp_obj); \
-          __dm.delete_class(_tmp_obj); \
+          __dm->delete_class_dbg(_tmp_obj, DYNAMIC_MANAGEMENT_DEBUG_DATA); \
            \
           goto on_error; \
         } \
@@ -157,6 +164,7 @@ static const fdata _io_handler_fdata[] = {
    \
 } /* enclosure closing */ \
    \
+  _this->unlock_object(); \
   return; \
    \
    \
@@ -165,10 +173,12 @@ static const fdata _io_handler_fdata[] = {
   on_error:{ \
     res->clear(); \
     res->append_var(_this->get_last_error()); \
+    _this->unlock_object(); \
   } \
 
 #define IO_HANDLER_REDIRECT_FUNCTION(table_obj, fname) \
   io_handler* _this = dynamic_cast<io_handler*>(obj); \
+  _this->lock_object(); \
   _this->_clear_error(); \
    \
   string_var _fname = fname; \
@@ -177,29 +187,42 @@ static const fdata _io_handler_fdata[] = {
   _this->_copy_error_from(res); \
   /* delete result from table_var */ \
   _this->_filein_def->get_lua_core()->context->api_varutil->delete_variant(_fvar); \
+  _this->unlock_object(); \
   
 #define IO_HANDLER_SET_FILE(file, target_table) \
+  bool _result = true; \
+  lock_object(); \
+{ /* enclosure for using gotos */ \
   _clear_error(); \
    \
   if(!file){ \
     _set_last_error(ERROR_INVALID_HANDLE, "file_handler is NULL."); \
-    return false; \
+    _result = false; \
+    goto skip_to_return; \
   } \
    \
   object_var _tmpobj(&_lc, file); \
   _tmpobj.push_to_stack(&_lc); \
   target_table->from_state(&_lc, -1); \
   _lc.context->api_stack->pop(&_lc, 1); \
-  return true; \
+} /* enclosure closing */ \
+  skip_to_return:{} \
+  unlock_object(); \
+  return _result; \
 
 
 
 static void _def_iohandler_destructor(I_object* obj){
-  __dm.delete_class(obj);
+  __dm->delete_class_dbg(obj, DYNAMIC_MANAGEMENT_DEBUG_DATA);
 }
 
 io_handler::io_handler(const lua::api::core* lc, const constructor_param* param): function_store(_def_iohandler_destructor){
   set_function_data(_io_handler_fdata);
+
+#if (_WIN64) || (_WIN32)
+  _object_mutex_ptr = &_object_mutex;
+  InitializeCriticalSection(_object_mutex_ptr);
+#endif
 
   I_file_handler* _stdout = NULL;
   I_file_handler* _stdin = NULL;
@@ -211,30 +234,33 @@ io_handler::io_handler(const lua::api::core* lc, const constructor_param* param)
   }
 
 #if (_WIN64) || (_WIN32)
-  if(!_stdout)
-    _stdout = __dm.new_class<file_handler>(lc, GetStdHandle(STD_OUTPUT_HANDLE), true);
+  if(!_stdout){
+    _stdout = __dm->new_class_dbg<file_handler>(DYNAMIC_MANAGEMENT_DEBUG_DATA, lc, GetStdHandle(STD_OUTPUT_HANDLE), true);
+  }
 
-  if(!_stdin)
-    _stdin = __dm.new_class<file_handler>(lc, GetStdHandle(STD_INPUT_HANDLE), false);
+  if(!_stdin){
+    _stdin = __dm->new_class_dbg<file_handler>(DYNAMIC_MANAGEMENT_DEBUG_DATA, lc, GetStdHandle(STD_INPUT_HANDLE), false);
+  }
 
-  if(!_stderr)
-    _stderr = __dm.new_class<file_handler>(lc, GetStdHandle(STD_ERROR_HANDLE), true);
+  if(!_stderr){
+    _stderr = __dm->new_class_dbg<file_handler>(DYNAMIC_MANAGEMENT_DEBUG_DATA, lc, GetStdHandle(STD_ERROR_HANDLE), true);
+  }
 #endif
 
-  _stdout_object = __dm.new_class<object_var>(lc, _stdout);
-  _stdin_object = __dm.new_class<object_var>(lc, _stdin);
-  _stderr_object = __dm.new_class<object_var>(lc, _stderr);
+  _stdout_object = __dm->new_class_dbg<object_var>(DYNAMIC_MANAGEMENT_DEBUG_DATA, lc, _stdout);
+  _stdin_object = __dm->new_class_dbg<object_var>(DYNAMIC_MANAGEMENT_DEBUG_DATA, lc, _stdin);
+  _stderr_object = __dm->new_class_dbg<object_var>(DYNAMIC_MANAGEMENT_DEBUG_DATA, lc, _stderr);
 
   _stdout_object->push_to_stack(lc);
-  _fileout_def = __dm.new_class<table_var>(lc, -1);
+  _fileout_def = __dm->new_class_dbg<table_var>(DYNAMIC_MANAGEMENT_DEBUG_DATA, lc, -1);
   lc->context->api_stack->pop(lc->istate, 1);
 
   _stdin_object->push_to_stack(lc);
-  _filein_def = __dm.new_class<table_var>(lc, -1);
+  _filein_def = __dm->new_class_dbg<table_var>(DYNAMIC_MANAGEMENT_DEBUG_DATA, lc, -1);
   lc->context->api_stack->pop(lc->istate, 1);
 
   _stderr_object->push_to_stack(lc);
-  _fileerr_def = __dm.new_class<table_var>(lc, -1);
+  _fileerr_def = __dm->new_class_dbg<table_var>(DYNAMIC_MANAGEMENT_DEBUG_DATA, lc, -1);
   lc->context->api_stack->pop(lc->istate, 1);
 
   _lc = *lc;
@@ -242,28 +268,32 @@ io_handler::io_handler(const lua::api::core* lc, const constructor_param* param)
 
 io_handler::~io_handler(){
   if(_obj_data){
-    __dm.delete_class(_obj_data);
+    __dm->delete_class_dbg(_obj_data, DYNAMIC_MANAGEMENT_DEBUG_DATA);
     _obj_data = NULL;
   }
 
-  __dm.delete_class(_stdout_object);
-  __dm.delete_class(_stdin_object);
-  __dm.delete_class(_stderr_object);
+  __dm->delete_class_dbg(_stdout_object, DYNAMIC_MANAGEMENT_DEBUG_DATA);
+  __dm->delete_class_dbg(_stdin_object, DYNAMIC_MANAGEMENT_DEBUG_DATA);
+  __dm->delete_class_dbg(_stderr_object, DYNAMIC_MANAGEMENT_DEBUG_DATA);
 
   flush();
   close();
 
-  __dm.delete_class(_fileout_def);
-  __dm.delete_class(_filein_def);
-  __dm.delete_class(_fileerr_def);
+  __dm->delete_class_dbg(_fileout_def, DYNAMIC_MANAGEMENT_DEBUG_DATA);
+  __dm->delete_class_dbg(_filein_def, DYNAMIC_MANAGEMENT_DEBUG_DATA);
+  __dm->delete_class_dbg(_fileerr_def, DYNAMIC_MANAGEMENT_DEBUG_DATA);
   
   _clear_error();
+
+#if (_WIN64) || (_WIN32)
+  DeleteCriticalSection(_object_mutex_ptr);
+#endif
 }
 
 
 void io_handler::_clear_error(){
   if(_last_error){
-    __dm.delete_class(_last_error);
+    __dm->delete_class_dbg(_last_error, DYNAMIC_MANAGEMENT_DEBUG_DATA);
     _last_error = NULL;
   }
 }
@@ -271,12 +301,12 @@ void io_handler::_clear_error(){
 void io_handler::_set_last_error(long long err_code, const std::string& err_msg){
   _clear_error();
   string_var _str = err_msg;
-  _last_error = __dm.new_class<error_var>(&_str, err_code);
+  _last_error = __dm->new_class_dbg<error_var>(DYNAMIC_MANAGEMENT_DEBUG_DATA, &_str, err_code);
 }
 
 void io_handler::_copy_error_from(file_handler* file){
   _clear_error();
-  _last_error = __dm.new_class<error_var>(file->get_last_error());
+  _last_error = __dm->new_class_dbg<error_var>(DYNAMIC_MANAGEMENT_DEBUG_DATA, file->get_last_error());
 }
 
 void io_handler::_copy_error_from(const I_vararr* data){
@@ -322,6 +352,7 @@ const I_error_var* io_handler::get_last_error() const{
 
 void io_handler::close(I_object* obj, const I_vararr* args, I_vararr* res){
   io_handler* _this = dynamic_cast<io_handler*>(obj);
+  _this->lock_object();
   _this->_clear_error();
 
 { // enclosure for using goto
@@ -370,16 +401,19 @@ void io_handler::close(I_object* obj, const I_vararr* args, I_vararr* res){
 
 }
 
+  _this->unlock_object();
   return;
 
   on_error:{
     res->clear();
     _this->_fill_error_with_last(res);
+    _this->unlock_object();
   }
 }
 
 void io_handler::flush(I_object* obj, const I_vararr* args, I_vararr* res){
   io_handler* _this = dynamic_cast<io_handler*>(obj);
+  _this->lock_object();
   _this->_clear_error();
 
   _this->flush();
@@ -388,10 +422,13 @@ void io_handler::flush(I_object* obj, const I_vararr* args, I_vararr* res){
     res->clear();
     _this->_fill_error_with_last(res);
   }
+
+  _this->unlock_object();
 }
 
 void io_handler::open(I_object* obj, const I_vararr* args, I_vararr* res){
   io_handler* _this = dynamic_cast<io_handler*>(obj);
+  _this->lock_object();
   _this->_clear_error();
 
 { // enclosure for using goto
@@ -455,10 +492,10 @@ void io_handler::open(I_object* obj, const I_vararr* args, I_vararr* res){
     }
   }
 
-  file_handler* _file = __dm.new_class<file_handler>(&_this->_lc, _fname_str, _open_mode);
+  file_handler* _file = __dm->new_class_dbg<file_handler>(DYNAMIC_MANAGEMENT_DEBUG_DATA, &_this->_lc, _fname_str, _open_mode);
   if(_file->get_last_error()){
     _this->_copy_error_from(_file);
-    __dm.delete_class(_file);
+    __dm->delete_class_dbg(_file, DYNAMIC_MANAGEMENT_DEBUG_DATA);
 
     goto on_error;
   }
@@ -468,12 +505,14 @@ void io_handler::open(I_object* obj, const I_vararr* args, I_vararr* res){
 
 } // enclosure closing
 
+  _this->unlock_object();
   return;
 
 
   on_error:{
     res->clear();
     _this->_fill_error_with_last(res);
+    _this->unlock_object();
   }
 }
 
@@ -491,6 +530,7 @@ void io_handler::error(I_object* obj, const I_vararr* args, I_vararr* res){
 
 void io_handler::lines(I_object* obj, const I_vararr* args, I_vararr* res){
   io_handler* _this = dynamic_cast<io_handler*>(obj);
+  _this->lock_object();
   _this->_clear_error();
 
 { // enclosure for using goto
@@ -509,10 +549,10 @@ void io_handler::lines(I_object* obj, const I_vararr* args, I_vararr* res){
       const I_string_var* _file_name = dynamic_cast<const I_string_var*>(_check_var);
 
       // let it leak, let the Lua GC handle it
-      file_handler* _file = __dm.new_class<file_handler>(&_this->_lc, _file_name->get_string(), file_handler::open_read | file_handler::open_automatic_close);
+      file_handler* _file = __dm->new_class_dbg<file_handler>(DYNAMIC_MANAGEMENT_DEBUG_DATA, &_this->_lc, _file_name->get_string(), file_handler::open_read | file_handler::open_automatic_close);
       if(_file->get_last_error()){
         _this->_copy_error_from(_file);
-        __dm.delete_class(_file);
+        __dm->delete_class_dbg(_file, DYNAMIC_MANAGEMENT_DEBUG_DATA);
 
         goto on_error;
       }
@@ -553,12 +593,14 @@ void io_handler::lines(I_object* obj, const I_vararr* args, I_vararr* res){
 
 } // enclosure closing
 
+  _this->unlock_object();
   return;
 
 
   on_error:{
     res->clear();
     res->append_var(_this->get_last_error());
+    _this->unlock_object();
   }
 }
 
@@ -568,13 +610,14 @@ void io_handler::read(I_object* obj, const I_vararr* args, I_vararr* res){
 
 void io_handler::tmpfile(I_object* obj, const I_vararr* args, I_vararr* res){
   io_handler* _this = dynamic_cast<io_handler*>(obj);
+  _this->lock_object();
   _this->_clear_error();
 
 { // enclosure for using goto
-  file_handler* _file = __dm.new_class<file_handler>(&_this->_lc, std::string(), file_handler::open_temporary);
+  file_handler* _file = __dm->new_class_dbg<file_handler>(DYNAMIC_MANAGEMENT_DEBUG_DATA, &_this->_lc, std::string(), file_handler::open_temporary);
   if(_file->get_last_error()){
     _this->_copy_error_from(_file);
-    __dm.delete_class(_file);
+    __dm->delete_class_dbg(_file, DYNAMIC_MANAGEMENT_DEBUG_DATA);
     goto on_error;
   }
 
@@ -582,17 +625,20 @@ void io_handler::tmpfile(I_object* obj, const I_vararr* args, I_vararr* res){
   res->append_var(&_tmpobj);
 } // enclosure closing
 
+  _this->unlock_object();
   return;
 
 
   on_error:{
     res->clear();
     _this->_fill_error_with_last(res);
+    _this->unlock_object();
   }
 }
 
 void io_handler::type(I_object* obj, const I_vararr* args, I_vararr* res){
   io_handler* _this = dynamic_cast<io_handler*>(obj);
+  _this->lock_object();
   _this->_clear_error();
 
 { // enclosure for using goto
@@ -630,12 +676,14 @@ void io_handler::type(I_object* obj, const I_vararr* args, I_vararr* res){
 
 } // enclosure closing
 
+  _this->unlock_object();
   return;
 
   on_invalid:{
     res->clear();
     nil_var _nvar;
     res->append_var(&_nvar);
+    _this->unlock_object();
   }
 }
 
@@ -645,6 +693,7 @@ void io_handler::write(I_object* obj, const I_vararr* args, I_vararr* res){
 
 
 void io_handler::close(){
+  lock_object();
   _clear_error();
 
   bool _skip_output_closing = false;
@@ -675,9 +724,12 @@ void io_handler::close(){
     if(_has_error(&_fres)) // check if returns an error data
       _copy_error_from(&_fres);
   }
+
+  unlock_object();
 }
 
 void io_handler::flush(){
+  lock_object();
   _clear_error();
 
   string_var _fname = "flush";
@@ -701,6 +753,8 @@ void io_handler::flush(){
   
   if(_has_error(&_fres)) // check if returns an error data
     _copy_error_from(&_fres);
+
+  unlock_object();
 }
 
 
@@ -731,6 +785,7 @@ const I_table_var* io_handler::get_error_file() const{
 
 
 size_t io_handler::read(char* buffer, size_t buffer_size){
+  lock_object();
   _clear_error();
 
   string_var _fname = "read";
@@ -764,20 +819,25 @@ size_t io_handler::read(char* buffer, size_t buffer_size){
 
   _filein_def->get_lua_core()->context->api_varutil->delete_variant(_fvar);
 
+  unlock_object();
   return _read_idx;
 }
 
 size_t io_handler::read(I_string_store* pstr, size_t read_len){
+  lock_object();
   _clear_error();
 
-  char* _tmpbuf = (char*)__dm.malloc(read_len);
+  char* _tmpbuf = (char*)__dm->malloc(read_len, DYNAMIC_MANAGEMENT_DEBUG_DATA);
   size_t _read_len = read(_tmpbuf, read_len);
   pstr->append(_tmpbuf, _read_len);
-  __dm.free(_tmpbuf);
+  __dm->free(_tmpbuf, DYNAMIC_MANAGEMENT_DEBUG_DATA);
+  
+  unlock_object();
   return _read_len;
 }
 
 size_t io_handler::write(const char* buffer, size_t buffer_size){
+  lock_object();
   _clear_error();
 
   string_var _fname_write = "write";
@@ -841,6 +901,8 @@ size_t io_handler::write(const char* buffer, size_t buffer_size){
   
   _fileout_def->get_lua_core()->context->api_varutil->delete_variant(_fvar_write);
   _fileout_def->get_lua_core()->context->api_varutil->delete_variant(_fvar_seek);
+
+  unlock_object();
   return _fp_end - _fp_begin;
 }
 
@@ -850,7 +912,8 @@ I_debuggable_object* io_handler::as_debug_object(){
 }
 
 void io_handler::on_object_added(const core* lc){
-  _obj_data = __dm.new_class<table_var>(lc, -1);
+  lock_object();
+  _obj_data = __dm->new_class_dbg<table_var>(DYNAMIC_MANAGEMENT_DEBUG_DATA, lc, -1);
   
   string_var _str = IO_HANDLER_STDOUT_VARNAME;
   _obj_data->set_value((I_variant*)&_str, (I_variant*)_stdout_object); // directly casting to not make the compiler upset
@@ -863,6 +926,20 @@ void io_handler::on_object_added(const core* lc){
 
   // Reset the lua_core to make sure to use this compilation context.
   _lc = *lc;
+  unlock_object();
+}
+
+
+void io_handler::lock_object() const{
+#if (_WIN64) || (_WIN32)
+  EnterCriticalSection(_object_mutex_ptr);
+#endif
+}
+
+void io_handler::unlock_object() const{
+#if (_WIN64) || (_WIN32)
+  LeaveCriticalSection(_object_mutex_ptr);
+#endif
 }
 
 
@@ -883,17 +960,20 @@ static const fdata _file_handler_fdata[] = {
 
 
 static void _def_fhandler_destructor(I_object* obj){
-  __dm.delete_class(obj);
+  __dm->delete_class_dbg(obj, DYNAMIC_MANAGEMENT_DEBUG_DATA);
 }
 
 
 file_handler::file_handler(const core* lc, const std::string& path, int op): function_store(_def_fhandler_destructor){
   _initialize_file_handler_static_vars();
+  set_function_data(_file_handler_fdata);
+
+#if (_WIN64) || (_WIN32)
+  _object_mutex_ptr = &_object_mutex;
+  InitializeCriticalSection(_object_mutex_ptr);
+#endif
 
   _lc = *lc;
-
-  set_function_data(_file_handler_fdata);
-  
   // create copy of path in case of temporary file 
   std::string _actual_path = path;
 
@@ -963,11 +1043,14 @@ file_handler::file_handler(const core* lc, const std::string& path, int op): fun
 #if (_WIN64) || (_WIN32)
 file_handler::file_handler(const core* lc, HANDLE pipe_handle, bool is_output): function_store(_def_fhandler_destructor){
   _initialize_file_handler_static_vars();
-
-  _lc = *lc;
-
   set_function_data(_file_handler_fdata);
 
+#if (_WIN64) || (_WIN32)
+  _object_mutex_ptr = &_object_mutex;
+  InitializeCriticalSection(_object_mutex_ptr);
+#endif
+
+  _lc = *lc;
   _hfile = pipe_handle;
   _is_pipe_handle = true;
   _own_handle = false;
@@ -986,6 +1069,10 @@ file_handler::~file_handler(){
   flush();
   close();
   _clear_error();
+
+#if (_WIN64) || (_WIN32)
+  DeleteCriticalSection(_object_mutex_ptr);
+#endif
 }
 
 
@@ -993,7 +1080,7 @@ void file_handler::_clear_error(){
   if(!_last_error)
     return;
 
-  __dm.delete_class(_last_error);
+  __dm->delete_class_dbg(_last_error, DYNAMIC_MANAGEMENT_DEBUG_DATA);
   _last_error = NULL;
 }
 
@@ -1001,7 +1088,7 @@ void file_handler::_set_last_error(long long err_code, const std::string& err_ms
   _clear_error();
 
   string_var _str = err_msg.c_str();
-  _last_error = __dm.new_class<error_var>(&_str, err_code);
+  _last_error = __dm->new_class_dbg<error_var>(DYNAMIC_MANAGEMENT_DEBUG_DATA, &_str, err_code);
 }
 
 #if (_WIN64) || (_WIN32)
@@ -1016,7 +1103,7 @@ void file_handler::_update_last_error_winapi(){
 void file_handler::_initiate_reference(){
   // metadata table should use reference
   _lc.context->api_value->newtable(_lc.istate);
-  _object_metadata = __dm.new_class<table_var>(&_lc, -1);
+  _object_metadata = __dm->new_class_dbg<table_var>(DYNAMIC_MANAGEMENT_DEBUG_DATA, &_lc, -1);
   _lc.context->api_stack->pop(_lc.istate, 1);
 
   string_var _keystr = FILE_HANDLER_METADATA_OBJECT_POINTER;
@@ -1026,7 +1113,7 @@ void file_handler::_initiate_reference(){
 
 void file_handler::_delete_object_metadata(){
   if(_object_metadata){
-    __dm.delete_class(_object_metadata);
+    __dm->delete_class_dbg(_object_metadata, DYNAMIC_MANAGEMENT_DEBUG_DATA);
     _object_metadata = NULL;
   }
 }
@@ -1039,7 +1126,7 @@ void file_handler::_delete_object_table(){
   }
 
   if(_object_table){
-    __dm.delete_class(_object_table);
+    __dm->delete_class_dbg(_object_table, DYNAMIC_MANAGEMENT_DEBUG_DATA);
     _object_table = NULL;
   }
 }
@@ -1047,7 +1134,7 @@ void file_handler::_delete_object_table(){
 
 void file_handler::_skip_str(bool(*filter_cb)(char ch)){
   if(already_closed()){
-    _set_last_error(ERROR_HANDLES_CLOSED, "File already closed.");
+    _set_last_error(ERROR_HANDLE_EOF, "File already closed.");
     return;
   }
 
@@ -1092,7 +1179,7 @@ int file_handler::_read_str(char* buffer, size_t buflen, bool(*filter_cb)(char c
     return -1;
 
   if(already_closed()){
-    _set_last_error(ERROR_HANDLES_CLOSED, "File already closed.");
+    _set_last_error(ERROR_HANDLE_EOF, "File already closed.");
     return -1;
   }
 
@@ -1162,7 +1249,7 @@ void file_handler::_fill_error_with_last(I_vararr* res){
 
 
 std::string file_handler::_get_pointer_str(const void* pointer){
-  return format_str("0x%X", pointer);
+  return format_str_mem(__dm, "0x%X", pointer);
 }
 
 
@@ -1176,14 +1263,14 @@ int file_handler::_lua_line_cb(const core* lc){
     lc->context->api_stack->pushvalue(lc->istate, lua_upvalueindex(1)); // get metadata
     if(lc->context->api_value->type(lc->istate, -1) != LUA_TTABLE){
       string_var _errmsg = "Function is not properly setup; Object table is nil.";
-      return __dm.new_class<error_var>(&_errmsg, -1);
+      return __dm->new_class_dbg<error_var>(DYNAMIC_MANAGEMENT_DEBUG_DATA, &_errmsg, -1);
     }
 
     lc->context->api_value->pushstring(lc->istate, FILE_HANDLER_METADATA_OBJECT_POINTER);
     lc->context->api_value->gettable(lc->istate, -2);
     if(lc->context->api_value->type(lc->istate, -1) != LUA_TLIGHTUSERDATA){
       string_var _errmsg = "Object already deleted.";
-      return __dm.new_class<error_var>(&_errmsg, -1);
+      return __dm->new_class_dbg<error_var>(DYNAMIC_MANAGEMENT_DEBUG_DATA, &_errmsg, -1);
     }
 
     (*_pthis) = (file_handler*)lc->context->api_value->touserdata(lc->istate, -1);
@@ -1192,7 +1279,7 @@ int file_handler::_lua_line_cb(const core* lc){
     lc->context->api_stack->pushvalue(lc->istate, lua_upvalueindex(2)); // get arg count
     if(lc->context->api_value->type(lc->istate, -1) != LUA_TNUMBER){
       string_var _errmsg = "Function is not properly setup; Arg count variable is not an int.";
-      return __dm.new_class<error_var>(&_errmsg, -1);
+      return __dm->new_class_dbg<error_var>(DYNAMIC_MANAGEMENT_DEBUG_DATA, &_errmsg, -1);
     }
 
     (*_parg_count) = lc->context->api_value->tointeger(lc->istate, -1);
@@ -1203,7 +1290,7 @@ int file_handler::_lua_line_cb(const core* lc){
 
   if(_err){
     _err->get_error_data()->push_to_stack(lc);
-    __dm.delete_class(_err);
+    __dm->delete_class_dbg(_err, DYNAMIC_MANAGEMENT_DEBUG_DATA);
 
     lc->context->api_util->error(lc->istate);
   }
@@ -1279,34 +1366,42 @@ bool file_handler::check_object_validity(const I_table_var* tvar){
 
 void file_handler::close(I_object* obj, const I_vararr* args, I_vararr* res){
   file_handler* _this = dynamic_cast<file_handler*>(obj);
+  _this->lock_object();
   _this->_clear_error();
 
   _this->close();
 
   if(_this->get_last_error())
     _this->_fill_error_with_last(res);
+
+  _this->unlock_object();
 }
 
 void file_handler::flush(I_object* obj, const I_vararr* args, I_vararr* res){
   file_handler* _this = dynamic_cast<file_handler*>(obj);
+  _this->lock_object();
   _this->_clear_error();
 
   _this->flush();
 
   if(_this->get_last_error())
     _this->_fill_error_with_last(res);
+  
+  _this->unlock_object();
 }
 
 void file_handler::lines(I_object* obj, const I_vararr* args, I_vararr* res){
   // don't store I_object pointer directly, if possible, use reference object like tables
   file_handler* _this = dynamic_cast<file_handler*>(obj);
+  _this->lock_object();
   _this->_clear_error();
 
+{ // enclosure for using gotos
   if(_this->already_closed()){
-    _this->_set_last_error(ERROR_HANDLES_CLOSED, "File already closed.");
+    _this->_set_last_error(ERROR_HANDLE_EOF, "File already closed.");
     res->append_var(_this->get_last_error());
 
-    return;
+    goto skip_to_return;
   }
 
   // in case of no argument (switch to default format)
@@ -1334,6 +1429,10 @@ void file_handler::lines(I_object* obj, const I_vararr* args, I_vararr* res){
 
   // add iterator function as result
   res->append_var(&_iterfunc);
+} // enclosure closing
+
+  skip_to_return:{}
+  _this->unlock_object();
 }
 
 void file_handler::read(I_object* obj, const I_vararr* args, I_vararr* res){
@@ -1343,6 +1442,7 @@ void file_handler::read(I_object* obj, const I_vararr* args, I_vararr* res){
   // L: read a line, with the newline character
   // (number): read a number of bytes
   file_handler* _this = dynamic_cast<file_handler*>(obj);
+  _this->lock_object();
   _this->_clear_error();
 
   // returns nothing when eof, and close the file if the open_mode has open_automatic_close flag
@@ -1350,10 +1450,11 @@ void file_handler::read(I_object* obj, const I_vararr* args, I_vararr* res){
     if(_this->_op_code & open_automatic_close)
       _this->close();
 
-    return;
+    goto skip_to_return;
   }
 
   for(int i = 0; i < args->get_var_count(); i++){
+{ // enclosure for using goto    
     if(_this->end_of_file_reached())
       goto on_error_eof;
 
@@ -1373,7 +1474,7 @@ void file_handler::read(I_object* obj, const I_vararr* args, I_vararr* res){
           bool (*_filter_cb)(char) = [](char c){return c == ' ';};
           bool (*_filter_cb_invert)(char) = [](char c){return c != ' ';};
 
-          char* _buffer = (char*)__dm.malloc(IO_MAXIMUM_ALL_READ_LEN+1); // with null termination
+          char* _buffer = (char*)__dm->malloc(IO_MAXIMUM_ALL_READ_LEN+1, DYNAMIC_MANAGEMENT_DEBUG_DATA); // with null termination
 
           _this->_skip_str(_filter_cb); // (if available) skip the first whitespaces
           int _read_len = _this->_read_str(_buffer, IO_MAXIMUM_ALL_READ_LEN, _filter_cb);
@@ -1383,24 +1484,24 @@ void file_handler::read(I_object* obj, const I_vararr* args, I_vararr* res){
           number_var _num = atof(_buffer);
           res->append_var(&_num);
 
-          __dm.free(_buffer);
+          __dm->free(_buffer, DYNAMIC_MANAGEMENT_DEBUG_DATA);
         }
 
         break; case 'a':{ // MARK: READ 'a'
-          char* _buffer = (char*)__dm.malloc(IO_MAXIMUM_ALL_READ_LEN+1); // with null termination
+          char* _buffer = (char*)__dm->malloc(IO_MAXIMUM_ALL_READ_LEN+1, DYNAMIC_MANAGEMENT_DEBUG_DATA); // with null termination
           int _read_len = _this->_read_str(_buffer, IO_MAXIMUM_ALL_READ_LEN);
 
           string_var _str(_buffer, _read_len);
           res->append_var(&_str);
 
-          __dm.free(_buffer);
+          __dm->free(_buffer, DYNAMIC_MANAGEMENT_DEBUG_DATA);
         }
 
         break; case 'L':
         break; case 'l':{ // MARK: READ 'l' or 'L'
           bool (*_filter_cb)(char) = [](char c){return c == '\n' || c == '\r';};
 
-          char* _buffer = (char*)__dm.malloc(IO_MAXIMUM_ALL_READ_LEN+2); // with null termination also newline character (if possible)
+          char* _buffer = (char*)__dm->malloc(IO_MAXIMUM_ALL_READ_LEN+2, DYNAMIC_MANAGEMENT_DEBUG_DATA); // with null termination also newline character (if possible)
           
           int _read_len = _this->_read_str(_buffer, IO_MAXIMUM_ALL_READ_LEN, _filter_cb);
 
@@ -1417,7 +1518,7 @@ void file_handler::read(I_object* obj, const I_vararr* args, I_vararr* res){
           string_var _str(_buffer, _read_len);
           res->append_var(&_str);
 
-          __dm.free(_buffer);
+          __dm->free(_buffer, DYNAMIC_MANAGEMENT_DEBUG_DATA);
         }
 
         break; default:
@@ -1426,7 +1527,7 @@ void file_handler::read(I_object* obj, const I_vararr* args, I_vararr* res){
     }
     else if(_iarg->get_type() == LUA_TNUMBER){ // MARK: READ based on a number
       const I_number_var* _number_var = dynamic_cast<const I_number_var*>(_iarg);
-      char* _buffer = (char*)__dm.malloc(IO_MAXIMUM_ALL_READ_LEN+1);
+      char* _buffer = (char*)__dm->malloc(IO_MAXIMUM_ALL_READ_LEN+1, DYNAMIC_MANAGEMENT_DEBUG_DATA);
 
       size_t _read_len = (size_t)_number_var->get_number();
       if(_number_var->get_number() > 0)
@@ -1437,7 +1538,7 @@ void file_handler::read(I_object* obj, const I_vararr* args, I_vararr* res){
       string_var _str(_buffer, _read_len);
       res->append_var(&_str);
 
-      __dm.free(_buffer);
+      __dm->free(_buffer, DYNAMIC_MANAGEMENT_DEBUG_DATA);
     }
     else
       goto on_error_format;
@@ -1447,6 +1548,8 @@ void file_handler::read(I_object* obj, const I_vararr* args, I_vararr* res){
     if(i <= 0 && _errvar)
       goto on_error;
 
+} // enclosure closing
+
     continue;
     on_error_eof:{
       nil_var _nvar;
@@ -1454,6 +1557,8 @@ void file_handler::read(I_object* obj, const I_vararr* args, I_vararr* res){
     }
   }
 
+  skip_to_return:{}
+  _this->unlock_object();
   return;
 
 
@@ -1467,11 +1572,13 @@ void file_handler::read(I_object* obj, const I_vararr* args, I_vararr* res){
   on_error:{
     res->clear();
     _this->_fill_error_with_last(res);
+    _this->unlock_object();
   }
 }
 
 void file_handler::seek(I_object* obj, const I_vararr* args, I_vararr* res){
   file_handler* _this = dynamic_cast<file_handler*>(obj);
+  _this->lock_object();
   _this->_clear_error();
   
 {// enclosure for using goto
@@ -1520,13 +1627,13 @@ void file_handler::seek(I_object* obj, const I_vararr* args, I_vararr* res){
   if(_this->get_last_error())
     goto on_error;
 
-
   // Add result for current seek position
   number_var _res_var = _result;
   res->append_var(&_res_var);
 
 }// enclosure closing
 
+  _this->unlock_object();
   return;
 
 
@@ -1535,11 +1642,13 @@ void file_handler::seek(I_object* obj, const I_vararr* args, I_vararr* res){
   on_error:{
     res->clear();
     _this->_fill_error_with_last(res);
+    _this->unlock_object();
   }
 }
 
 void file_handler::setvbuf(I_object* obj, const I_vararr* args, I_vararr* res){
   file_handler* _this = dynamic_cast<file_handler*>(obj);
+  _this->lock_object();
   _this->_clear_error();
 
 {// enclosure for using gotos
@@ -1576,6 +1685,7 @@ void file_handler::setvbuf(I_object* obj, const I_vararr* args, I_vararr* res){
 
 }// enclosure closing
 
+  _this->unlock_object();
   return;
 
 
@@ -1584,11 +1694,13 @@ void file_handler::setvbuf(I_object* obj, const I_vararr* args, I_vararr* res){
   on_error:{
     res->clear();
     _this->_fill_error_with_last(res);
+    _this->unlock_object();
   }
 }
 
 void file_handler::write(I_object* obj, const I_vararr* args, I_vararr* res){
   file_handler* _this = dynamic_cast<file_handler*>(obj);
+  _this->lock_object();
   _this->_clear_error();
   
 {// enclosure for using gotos
@@ -1617,6 +1729,7 @@ void file_handler::write(I_object* obj, const I_vararr* args, I_vararr* res){
 
   // add this object as result
   res->append_var(_this->_object_table);
+  _this->unlock_object();
   return;
   
 
@@ -1625,17 +1738,22 @@ void file_handler::write(I_object* obj, const I_vararr* args, I_vararr* res){
   on_error:{
     res->clear();
     _this->_fill_error_with_last(res);
+    _this->unlock_object();
   }
 }
 
 
 bool file_handler::close(){
+  bool _result = true;
+  lock_object();
   _clear_error();
 
+{ // enclosure for using gotos
 #if (_WIN64) || (_WIN32)
   if(already_closed()){
-    _set_last_error(ERROR_HANDLES_CLOSED, "File already closed.");
-    return false;
+    _set_last_error(ERROR_HANDLE_EOF, "File already closed.");
+    _result = false;
+    goto skip_to_return;
   }
 
   _delete_object_table();
@@ -1647,43 +1765,59 @@ bool file_handler::close(){
 
   _hfile = NULL;
 #endif
+} // enclosure closing
 
-  return true;
+  skip_to_return:{}
+  unlock_object();
+  return _result;
 }
 
 bool file_handler::flush(){
+  bool _result = true;
+  lock_object();
   _clear_error();
 
 #if (_WIN64) || (_WIN32)
   if(already_closed()){ 
-    _set_last_error(ERROR_HANDLES_CLOSED, "File already closed.");
-    return false;
+    _set_last_error(ERROR_HANDLE_EOF, "File already closed.");
+    _result = false;
+    goto skip_to_return;
   }
 
   FlushFileBuffers(_hfile);
 #endif
 
-  return true;
+  skip_to_return:{}
+  unlock_object();
+  return _result;
 }
 
 char file_handler::peek(){
-  _clear_error();
   char _tmpc;
+  lock_object();
+  _clear_error();
 
+{ // enclosure for using gotos
   if(already_closed()){
-    _set_last_error(ERROR_HANDLES_CLOSED, "File already closed.");
-    return '\0';
+    _set_last_error(ERROR_HANDLE_EOF, "File already closed.");
+    _tmpc = '\0';
+    goto skip_to_return;
   }
 
-  if(end_of_file_reached())
-    return '\0';
+  if(end_of_file_reached()){
+    _tmpc = '\0';
+    goto skip_to_return;
+  }
 
 #if (_WIN64) || (_WIN32)
   bool _success = PeekNamedPipe(_hfile, &_tmpc, sizeof(char), NULL, NULL, NULL);
   if(!_success)
     goto on_windows_error;
 #endif
+} // enclosure closing
 
+  skip_to_return:{}
+  unlock_object();
   return _tmpc;
 
 
@@ -1692,23 +1826,26 @@ char file_handler::peek(){
 #if (_WIN64) || (_WIN32)
   on_windows_error:{
     _update_last_error_winapi();
+    unlock_object();
     return '\0';
   }
 #endif
 }
 
 long file_handler::seek(seek_opt opt, long offset){
-  _clear_error();
   long _result = -1;
+  lock_object();
+  _clear_error();
 
+{ // enclosure for using goto
   if(_is_pipe_handle){
     _set_last_error(ERROR_INVALID_HANDLE, "Cannot seek a pipe handle.");
-    return -1;
+    goto skip_to_return;
   }
 
   if(already_closed()){
-    _set_last_error(ERROR_HANDLES_CLOSED, "File already closed.");
-    return -1;
+    _set_last_error(ERROR_HANDLE_EOF, "File already closed.");
+    goto skip_to_return;
   }
 
 #if (_WIN64) || (_WIN32)
@@ -1751,7 +1888,10 @@ long file_handler::seek(seek_opt opt, long offset){
     goto on_windows_error;
 
 #endif
+} // enclosure closing
 
+  skip_to_return:{}
+  unlock_object();
   return _result;
 
 
@@ -1760,28 +1900,34 @@ long file_handler::seek(seek_opt opt, long offset){
 #if (_WIN64) || (_WIN32)
   on_windows_error:{
     _update_last_error_winapi();
+    unlock_object();
     return -1;
   }
 #endif
 }
 
 size_t file_handler::read(char* buffer, size_t buffer_size){
+  lock_object();
   _clear_error();
-  return _read_str(buffer,  buffer_size);
+  size_t _result = _read_str(buffer,  buffer_size);
+  unlock_object();
+  return _result;
 }
 
 size_t file_handler::write(const char* buffer, size_t buffer_size){
-  _clear_error();
   size_t _result = 0;
+  lock_object();
+  _clear_error();
 
+{ // enclosure for using gotos
   if(already_closed()){
-    _set_last_error(ERROR_HANDLES_CLOSED, "File already closed.");
-    return 0;
+    _set_last_error(ERROR_HANDLE_EOF, "File already closed.");
+    goto skip_to_return;
   }
 
   if(!can_write()){
     _set_last_error(ERROR_INVALID_HANDLE, "Write operation is prohibited.");
-    return 0;
+    goto skip_to_return;
   }
 
   // check appending mode
@@ -1816,7 +1962,10 @@ size_t file_handler::write(const char* buffer, size_t buffer_size){
 
     // buffering_full: let the OS handle it
   }
+} // enclosure closing
 
+  skip_to_return:{}
+  unlock_object();
   return _result;
 
 
@@ -1824,19 +1973,24 @@ size_t file_handler::write(const char* buffer, size_t buffer_size){
 #if (_WIN64) || (_WIN32)
   on_windows_error:{
     _update_last_error_winapi();
+    unlock_object();
     return 0;
   }
 #endif
 }
 
 void file_handler::set_buffering_mode(buffering_mode mode){
+  lock_object();
   _clear_error();
   if(already_closed()){
-    _set_last_error(ERROR_HANDLES_CLOSED, "File already closed.");
-    return;
+    _set_last_error(ERROR_HANDLE_EOF, "File already closed.");
+    goto skip_to_return;
   }
 
   _buffering_mode = mode;
+
+  skip_to_return:{}
+  unlock_object();
 }
 
 
@@ -1850,16 +2004,21 @@ bool file_handler::end_of_file_reached() const{
 
 size_t file_handler::get_remaining_read() const{
   size_t _result = 0;
+  lock_object();
 
+{ // enclosure for using gotos
   if(already_closed())
-    return 0;
+    goto skip_to_return;
 
 #if (_WIN64) || (_WIN32)
   DWORD _available_bytes = 0;
   PeekNamedPipe(_hfile, NULL, 0, NULL, &_available_bytes, NULL);
   _result = _available_bytes;
 #endif
+} // enclosure closing
 
+  skip_to_return:{}
+  unlock_object();
   return _result;
 }
 
@@ -1878,43 +2037,56 @@ I_debuggable_object* file_handler::as_debug_object(){
 }
 
 void file_handler::on_object_added(const core* lc){
+  lock_object();
   _delete_object_table();
 
   string_var _keystr = FILE_HANDLER_LUA_OBJECT_TABLE;
-  _object_table = __dm.new_class<table_var>(lc, -1);
+  _object_table = __dm->new_class_dbg<table_var>(DYNAMIC_MANAGEMENT_DEBUG_DATA, lc, -1);
   _object_metadata->set_value((I_variant*)&_keystr, (I_variant*)_object_table); // directly casting to not make the compiler upset
 
   // Reset the lua_core to make sure to use this compilation context.
   _lc = *lc;
+  unlock_object();
 }
+
+
+void file_handler::lock_object() const{
+#if (_WIN64) || (_WIN32)
+  EnterCriticalSection(_object_mutex_ptr);
+#endif
+}
+
+void file_handler::unlock_object() const{
+#if (_WIN64) || (_WIN32)
+  LeaveCriticalSection(_object_mutex_ptr);
+#endif
+}
+
+
 
 
 DLLEXPORT lua::library::I_io_handler* CPPLUA_LIBRARY_CREATE_IO_HANDLER(const lua::library::io_handler_api_constructor_data* data){
-  return __dm.new_class<io_handler>(data->lua_core, data->param);
+  return __dm->new_class_dbg<io_handler>(DYNAMIC_MANAGEMENT_DEBUG_DATA, data->lua_core, data->param);
 }
 
 DLLEXPORT void CPPLUA_LIBRARY_DELETE_IO_HANDLER(lua::library::I_io_handler* handler){
-  __dm.delete_class(handler);
+  __dm->delete_class_dbg(handler, DYNAMIC_MANAGEMENT_DEBUG_DATA);
 }
 
 
 DLLEXPORT lua::library::I_file_handler* CPPLUA_LIBRARY_CREATE_FILE_HANDLER(const lua::library::file_handler_api_constructor_data* data){
-  if(!data->use_pipe)
-    return __dm.new_class<file_handler>(data->lua_core, data->path, data->open_mode);
+  if(!data->use_pipe){
+    return __dm->new_class_dbg<file_handler>(DYNAMIC_MANAGEMENT_DEBUG_DATA, data->lua_core, data->path, data->open_mode);
+  }
   else{
 #if (_WIN64) || (_WIN32)
-    return __dm.new_class<file_handler>(data->lua_core, data->pipe_handle, data->is_output);
+    return __dm->new_class_dbg<file_handler>(DYNAMIC_MANAGEMENT_DEBUG_DATA, data->lua_core, data->pipe_handle, data->is_output);
 #endif
   }
 }
 
 DLLEXPORT void CPPLUA_LIBRARY_DELETE_FILE_HANDLER(lua::library::I_file_handler* handler){
-  __dm.delete_class(handler);
-}
-
-
-DLLEXPORT void CPPLUA_LIBRARY_SET_IO_HANDLER_MEMORY_MANAGEMENT_CONFIG(const memory_management_config* config){
-  __dm.set_config(config);
+  __dm->delete_class_dbg(handler, DYNAMIC_MANAGEMENT_DEBUG_DATA);
 }
 
 

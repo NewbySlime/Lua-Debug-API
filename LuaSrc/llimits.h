@@ -207,13 +207,41 @@ typedef unsigned long Instruction;
 
 
 /*
+** [Modified for CPP API def]
 ** macros that are executed whenever program enters the Lua core
 ** ('lua_lock') and leaves the core ('lua_unlock')
 */
 #if !defined(lua_lock)
-#define lua_lock(L)	((void) 0)
-#define lua_unlock(L)	((void) 0)
+#define lua_lock(L) void luathread_util_lock_state(lua_State*); luathread_util_lock_state(L)
+#define lua_unlock(L) void luathread_util_unlock_state(lua_State*); luathread_util_unlock_state(L)
 #endif
+
+/*
+** [CPP API def]
+** macro for swapping current state with thread dependent state
+** (based on the original 'main' thread).
+*/
+#define lua_swapwithtdependent(L) lua_State* luathread_util_get_tdependent(lua_State*); L = luathread_util_get_tdependent(L)
+
+/*
+** [CPP API def]
+** macro for disabling thread dependent state. 
+*/
+#define lua_enabletdependent(L) void luathread_util_enable_tdependent(lua_State*); luathread_util_enable_tdependent(L)
+#define lua_disabletdependent(L) void luathread_util_disable_tdependent(lua_State*); luathread_util_disable_tdependent(L)
+
+/*
+** [CPP API def]
+** macro to call when Lua has created the state.
+** note: state might be null.
+*/
+#define lua_initstate(L) void luastate_util_initstate(lua_State*); luastate_util_initstate(L)
+
+/*
+** [CPP API def]
+** macro to call before Lua closing the state.
+*/
+#define lua_deinitstate(L) void luastate_util_deinitstate(lua_State*); luastate_util_deinitstate(L)
 
 /*
 ** macro executed during Lua functions at points where the

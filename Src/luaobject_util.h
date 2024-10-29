@@ -8,6 +8,7 @@
 
 // When function to be called wants to throw a Lua error, a user function should add error_var as the first result value.
 // If function does not want to throw, but wanted to return an error value, the function should return it after the first result value (can be padded with nil_var).
+// NOTE: objects in this code is not Thread-Safe.
 
 namespace lua::object{
   struct fdata{

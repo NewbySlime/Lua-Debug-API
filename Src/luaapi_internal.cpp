@@ -11,8 +11,8 @@ using namespace lua::internal;
 
 class _api_internal_function: public I_internal{
   public:
-    void initiate_internal_storage(void* istate) override{initiate_internal_storage((lua_State*)istate);}
-    void require_internal_storage(void* istate) override{require_internal_storage((lua_State*)istate);}
+    void initiate_internal_storage(void* istate) override{lua::internal::initiate_internal_storage((lua_State*)istate);}
+    void require_internal_storage(void* istate) override{lua::internal::require_internal_storage((lua_State*)istate);}
 };
 
 
