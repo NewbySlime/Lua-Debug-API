@@ -178,16 +178,26 @@ static const fdata _io_handler_fdata[] = {
 
 #define IO_HANDLER_REDIRECT_FUNCTION(table_obj, fname) \
   io_handler* _this = dynamic_cast<io_handler*>(obj); \
+  bool _error_occur = false; \
   _this->lock_object(); \
   _this->_clear_error(); \
    \
   string_var _fname = fname; \
-  const I_function_var* _fvar = dynamic_cast<const I_function_var*>(table_obj->get_value(_fname)); \
+  I_function_var* _fvar = dynamic_cast<I_function_var*>(table_obj->get_value(_fname)); \
+  if(!_fvar){ \
+    _this->_set_last_error(-1, format_str("Cannot run an nil function (%s)", _fname.get_string()).c_str()); \
+    _error_occur = true; \
+    goto skip_to_return; \
+  } \
   _fvar->run_function(&_this->_lc, args, res); \
   _this->_copy_error_from(res); \
   /* delete result from table_var */ \
-  _this->_filein_def->get_lua_core()->context->api_varutil->delete_variant(_fvar); \
+  table_obj->free_variant(_fvar); \
+  skip_to_return:{}\
   _this->unlock_object(); \
+  if(_error_occur){ \
+    _this->_fill_error_with_last(res); \
+  } \
   
 #define IO_HANDLER_SET_FILE(file, target_table) \
   bool _result = true; \
@@ -381,7 +391,7 @@ void io_handler::close(I_object* obj, const I_vararr* args, I_vararr* res){
           res->append(&_res);
 
           // delete result from table_var
-          _itvar->get_lua_core()->context->api_varutil->delete_variant(_fvar);
+          _itvar->free_variant(_fvar);
 
           if(_this->_has_error(res))
             _this->_copy_error_from(res);
@@ -575,13 +585,13 @@ void io_handler::lines(I_object* obj, const I_vararr* args, I_vararr* res){
 
   string_var _fname = "lines";
   // no way that the function could fail
-  const I_function_var* _func = dynamic_cast<const I_function_var*>(_target_obj.get_value(_fname));
+  I_function_var* _func = dynamic_cast<I_function_var*>(_target_obj.get_value(_fname));
   res->clear();
 
   int _errcode = _func->run_function(_target_obj.get_lua_core(), &_farg, res);
   
   // delete result from table_var
-  _target_obj.get_lua_core()->context->api_varutil->delete_variant(_func);
+  _target_obj.free_variant(_func);
 
   if(_errcode != LUA_OK){
     string_store _errmsg;
@@ -653,26 +663,27 @@ void io_handler::type(I_object* obj, const I_vararr* args, I_vararr* res){
   if(!file_handler::check_object_validity(_tvar))
     goto on_invalid;
 
-  {
-    const string_var _case_closed = "closed file";
-    const string_var _case_normal = "file";
+{ // enclosure for scoping
+  const string_var _case_closed = "closed file";
+  const string_var _case_normal = "file";
 
-    string_var _fname = "read";
-    const I_function_var* _fvar = dynamic_cast<const I_function_var*>(_tvar->get_value(&_fname));
+  string_var _fname = "read";
+  // already checked for validity
+  const I_function_var* _fvar = dynamic_cast<const I_function_var*>(_tvar->get_value(&_fname));
 
-    vararr _farg;{
-      number_var _num = 0.f; _farg.append_var(&_num);
-    }
-    vararr _fres;
-
-    _fvar->run_function(&_this->_lc, &_farg, &_fres);
-    if(_this->_has_error(&_fres))
-      res->append_var(&_case_closed);
-    else
-      res->append_var(&_case_normal);
-  
-    _tvar->get_lua_core()->context->api_varutil->delete_variant(_fvar);
+  vararr _farg;{
+    number_var _num = 0.f; _farg.append_var(&_num);
   }
+  vararr _fres;
+
+  _fvar->run_function(&_this->_lc, &_farg, &_fres);
+  if(_this->_has_error(&_fres))
+    res->append_var(&_case_closed);
+  else
+    res->append_var(&_case_normal);
+
+  _tvar->get_lua_core()->context->api_varutil->delete_variant(_fvar);
+} // enclosure closing
 
 } // enclosure closing
 
@@ -711,18 +722,24 @@ void io_handler::close(){
   _lc.context->api_stack->pop(_lc.istate, 1);
 
   if(!_skip_output_closing){
-    string_var _fname = "close";
-    const I_function_var* _fvar = dynamic_cast<const I_function_var*>(_fileout_def->get_value(_fname));
-
     vararr _fargs;
     vararr _fres;
+    string_var _fname = "close";
+    I_function_var* _fvar = dynamic_cast<I_function_var*>(_fileout_def->get_value(_fname));
+    if(!_fvar){
+      _set_last_error(-1, format_str("Cannot run an nil function (%s)", _fname.get_string()).c_str());
+      goto skip_running_function;
+    }
 
     _fvar->run_function(&_lc, &_fargs, &_fres);
 
-    _fileout_def->get_lua_core()->context->api_varutil->delete_variant(_fvar);
+    skip_running_function:{}
 
     if(_has_error(&_fres)) // check if returns an error data
       _copy_error_from(&_fres);
+
+    if(_fvar)
+      _fileout_def->free_variant(_fvar);
   }
 
   unlock_object();
@@ -737,23 +754,41 @@ void io_handler::flush(){
   vararr _fres;
   
   // Run flush to output
-  const I_function_var* _fvar = dynamic_cast<const I_function_var*>(_fileout_def->get_value(_fname));
+  I_function_var* _fvar = dynamic_cast<I_function_var*>(_fileout_def->get_value(_fname));
+  if(!_fvar){
+    _set_last_error(-1, format_str("Cannot run an nil function (%s) on output file.", _fname.get_string()).c_str());
+    goto output_skip_process;
+  }
+  
   _fvar->run_function(&_lc, &_fargs, &_fres);
-  _fileout_def->get_lua_core()->context->api_varutil->delete_variant(_fvar);
+
+  output_skip_process:{}
 
   if(_has_error(&_fres)) // check if returns an error data
     _copy_error_from(&_fres);
+
+  if(_fvar)
+    _fileout_def->free_variant(_fvar);
 
   _fres.clear();
   
   // Run flush to error
-  _fvar = dynamic_cast<const I_function_var*>(_fileerr_def->get_value(_fname));
+  _fvar = dynamic_cast<I_function_var*>(_fileerr_def->get_value(_fname));
+  if(!_fvar){
+    _set_last_error(-1, format_str("Cannot run an nil function (%s) on error file.", _fname.get_string()).c_str());
+    goto error_skip_process;
+  }
+
   _fvar->run_function(&_lc, &_fargs, &_fres);
-  _fileerr_def->get_lua_core()->context->api_varutil->delete_variant(_fvar);
+
+  error_skip_process:{}
   
   if(_has_error(&_fres)) // check if returns an error data
     _copy_error_from(&_fres);
 
+  if(_fvar)
+    _fileerr_def->free_variant(_fvar);
+  
   unlock_object();
 }
 
@@ -788,12 +823,16 @@ size_t io_handler::read(char* buffer, size_t buffer_size){
   lock_object();
   _clear_error();
 
-  string_var _fname = "read";
-  const I_function_var* _fvar = dynamic_cast<const I_function_var*>(_filein_def->get_value(_fname));
   vararr _fargs;
   vararr _fres;
-
   size_t _read_idx = 0;
+  string_var _fname = "read";
+  I_function_var* _fvar = dynamic_cast<I_function_var*>(_filein_def->get_value(_fname));
+  if(!_fvar){
+    _set_last_error(-1, format_str("Cannot run an nil function (%s) on input file.", _fname.get_string()).c_str());
+    goto skip_to_return;
+  }
+
   while(_read_idx < buffer_size){
     {_fargs.clear();
       number_var _read_len = buffer_size - _read_idx; _fargs.append_var(&_read_len); 
@@ -814,10 +853,13 @@ size_t io_handler::read(char* buffer, size_t buffer_size){
     _read_idx += _res_str->get_length();
   }
 
+  skip_to_return:{}
+
   if(_has_error(&_fres)) // check if the function returns an error data
     _copy_error_from(&_fres);
 
-  _filein_def->get_lua_core()->context->api_varutil->delete_variant(_fvar);
+  if(_fvar)
+    _filein_def->free_variant(_fvar);
 
   unlock_object();
   return _read_idx;
@@ -842,8 +884,8 @@ size_t io_handler::write(const char* buffer, size_t buffer_size){
 
   string_var _fname_write = "write";
   string_var _fname_seek = "seek";
-  const I_function_var* _fvar_write = dynamic_cast<const I_function_var*>(_fileout_def->get_value(_fname_write));
-  const I_function_var* _fvar_seek = dynamic_cast<const I_function_var*>(_fileout_def->get_value(_fname_seek));
+  I_function_var* _fvar_write = dynamic_cast<I_function_var*>(_fileout_def->get_value(_fname_write));
+  I_function_var* _fvar_seek = dynamic_cast<I_function_var*>(_fileout_def->get_value(_fname_seek));
 
   const I_variant* _check_var;
 
@@ -856,6 +898,17 @@ size_t io_handler::write(const char* buffer, size_t buffer_size){
 
   vararr _fargs;
   vararr _fres;
+
+{ // enclosure for using gotos
+  if(!_fvar_write){
+    _set_last_error(-1, format_str("Cannot run an nil function (%s) on output file.", _fname_write.get_string()).c_str());
+    goto skip_to_return;
+  }
+
+  if(!_fvar_seek){
+    _set_last_error(-1, format_str("Cannot run an nil function (%s) on output file.", _fname_seek.get_string()).c_str());
+    goto skip_to_return;
+  }
 
   // Seek for getting current file position
 
@@ -893,14 +946,17 @@ size_t io_handler::write(const char* buffer, size_t buffer_size){
   if(_check_var->get_type() != I_number_var::get_static_lua_type())
     goto skip_to_return;
   _fp_end = dynamic_cast<const I_number_var*>(_check_var)->get_number();
+} // enclosure closing
 
   skip_to_return:{}
 
   if(_has_error(&_fres)) // check if previous function returns an error data
     _copy_error_from(&_fres);
   
-  _fileout_def->get_lua_core()->context->api_varutil->delete_variant(_fvar_write);
-  _fileout_def->get_lua_core()->context->api_varutil->delete_variant(_fvar_seek);
+  if(_fvar_write)
+    _fileout_def->free_variant(_fvar_write);
+  if(_fvar_seek)
+    _fileout_def->free_variant(_fvar_seek);
 
   unlock_object();
   return _fp_end - _fp_begin;

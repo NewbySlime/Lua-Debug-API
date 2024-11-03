@@ -130,6 +130,9 @@ void lua::set_special_type(lua_State* state, int stack_idx, int new_type){
   lua_pushstring(state, VARIANT_SPECIAL_TYPE_KEY_REG);
   lua_pushinteger(state, new_type);
   lua_settable(state, -3); // set data in metatable
+
+  // pop the metatable
+  lua_pop(state, 1);
 }
 
 int lua::get_special_type(lua_State* state, int stack_idx){

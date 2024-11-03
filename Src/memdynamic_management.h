@@ -87,6 +87,7 @@ namespace memory{
       virtual void* realloc(void* target_obj, size_t size) const = 0;
 
       virtual void set_config(const memory_management_config* config) const = 0;
+      virtual void reset_config() const = 0;
       virtual const memory_management_config* get_config() const = 0;
 
 

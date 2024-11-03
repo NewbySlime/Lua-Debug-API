@@ -60,8 +60,7 @@ void value_ref::_require_internal_data(){
     _lc.context->api_value->settable(_lc.istate, -4);
   }
 
-  _lc.context->api_stack->insert(_lc.istate, -2); // put the new table below the internal storage
-  _lc.context->api_stack->pop(_lc.istate, 1); // pop the internal storage
+  _lc.context->api_stack->remove(_lc.istate, -2); // remove the internal storage
 }
 
 
@@ -108,8 +107,7 @@ void value_ref::_push_metadata(){
   _lc.context->api_value->pushstring(_lc.istate, _value_key.c_str());
   _lc.context->api_value->gettable(_lc.istate, -2);
 
-  _lc.context->api_stack->insert(_lc.istate, -2); // put metadata table below internal data
-  _lc.context->api_stack->pop(_lc.istate, 1); // pop internal data
+  _lc.context->api_stack->remove(_lc.istate, -2); // remove internal data
 }
 
 
@@ -195,8 +193,7 @@ void value_ref::push_value_to_stack(){
     _lc.context->api_value->pushstring(_lc.istate, VALUE_REF_METADATA_ACTUAL_VALUE);
     _lc.context->api_value->gettable(_lc.istate, -2);
 
-    _lc.context->api_stack->insert(_lc.istate, -2); // put value below the metadata
-    _lc.context->api_stack->pop(_lc.istate, 1); // pop the metadata
+    _lc.context->api_stack->remove(_lc.istate, -2); // remove metadata
   }
   else
     _lc.context->api_value->pushnil(_lc.istate);

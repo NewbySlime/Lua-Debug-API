@@ -307,11 +307,14 @@ namespace lua{
 
       // Returns NULL-terminated array.
       virtual const I_variant** get_keys() const = 0;
+      // Always update the keys if there's a possible case where the table has been changed externally. Do note that this in a case of referencing of a table value in Lua.
       virtual void update_keys() = 0;
 
-      // This will create a new variant. Returns NULL if cannot find value.
+      // This will create a new variant, free the variant with free_variant(). Returns NULL if cannot find value.
+      // The returned value is not a referenced value from a storage due to in a case of this object uses reference to Lua variables.
       virtual I_variant* get_value(const I_variant* key) = 0;
-      // This will create a new variant. Returns NULL if cannot find value.
+      // This will create a new variant, free the variant with free_variant(). Returns nil_var if cannot find value.
+      // The returned value is not a referenced value from a storage due to in a case of this object uses reference to Lua variables.
       virtual const I_variant* get_value(const I_variant* key) const = 0;
 
       virtual void set_value(const I_variant* key, const I_variant* data) = 0;
@@ -326,9 +329,12 @@ namespace lua{
       virtual bool is_reference() const = 0;
       virtual const void* get_table_pointer() const = 0;
       virtual const lua::api::core* get_lua_core() const = 0;
+
+      // Free a variant returned from this object.
+      virtual void free_variant(const I_variant* var) const = 0;
   };
 
-  // Can parse Global table, but it will skip "_G" value
+  // Comparison is based on the reference or the object pointer, not the values inside the object.
   class table_var: public variant, public I_table_var{
     private:
       const I_variant** _keys_buffer;
@@ -375,6 +381,9 @@ namespace lua{
       // NOTE: only clears key datas, not deallocating memory used for key registry.
       void _clear_keys_reg();
 
+    protected:
+      int _compare_with(const variant* rhs) const override;
+
     public:
       // Default: Copy mode
       table_var();
@@ -415,6 +424,8 @@ namespace lua{
       bool is_reference() const override;
       const void* get_table_pointer() const override;
       const lua::api::core* get_lua_core() const override;
+
+      void free_variant(const I_variant* var) const override;
   };
 
 
@@ -518,8 +529,8 @@ namespace lua{
       virtual const lua::api::core* get_lua_core() const = 0;
   };
 
-  // NOTE: for now, only cfunction that can be stored
-  // ANOTHER NOTE: any function called via function_var can use upvalues but only after LUA_FUNCVAR_START_UPVALUE
+  // Comparison is based on the reference or the object pointer, not the values inside the object.
+  // NOTE: any function called via function_var can use upvalues but only after LUA_FUNCVAR_START_UPVALUE
   class function_var: public I_function_var, public variant{
     private:
       luaapi_cfunction _this_fn = NULL;
@@ -661,8 +672,11 @@ namespace lua{
   // NOTE: object_var does not store the actual type of the stored object
 
   // Once the object registered within object_var, the object lifetime (memory) management shouldn't be handled by user code. That management will be handled by Lua's garbage collector.
+  // Hence, the object reference shouldn't be stored without alongside object_var as the object could be deallocated at any time by the Lua garbage collector.
   // Object to store C++ object inside Lua codespace. Note, that this object will not create a clone when pushing same object. Instead, the object will push a table referencing the object.
-  // NOTE: Actual representation in Lua is a table with metamethods
+  // NOTE:
+  //  - Actual representation in Lua is a table with metamethods
+  //  - Already pushed object shouldn't be used again to create object_var as that could lead to undefined behaviour.
   class I_object_var: virtual public I_variant{
     public:
       constexpr static int get_static_lua_type(){return LUA_TCPPOBJECT;}
@@ -685,6 +699,9 @@ namespace lua{
       void _clear_object();
 
       static std::string _get_reference_key(void* idata);
+
+    protected:
+      int _compare_with(const variant* rhs) const override;
 
     public:
       object_var(const object_var& data);

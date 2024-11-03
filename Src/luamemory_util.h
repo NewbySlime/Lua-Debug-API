@@ -10,6 +10,7 @@ namespace lua::memory{
 
   const ::memory::memory_management_config* get_memory_manager_config();
   void set_memory_manager_config(const ::memory::memory_management_config* config);
+  void reset_memory_manager_config();
 
   lua_Alloc memory_manager_as_lua_alloc();
 }

@@ -31,7 +31,14 @@ static void _code_deinitiate();
 static destructor_helper _dh(_code_deinitiate);
 
 
-void _code_initiate(){
+static void _reset_config(){  _config = memory_management_config(_default_malloc, _default_free, _default_realloc, NULL, NULL);
+}
+
+
+static void _code_initiate(){
+  if(!_config.f_alloc)
+    _reset_config();
+
 #if (_WIN64) || (_WIN32)
   if(_nested_record_tlsidx == TLS_OUT_OF_INDEXES){
     _nested_record_tlsidx = TlsAlloc();
@@ -49,7 +56,7 @@ void _code_initiate(){
 #endif
 }
 
-void _code_deinitiate(){
+static void _code_deinitiate(){
 #if (_WIN64) || (_WIN32)
   if(_nested_record_tlsidx != TLS_OUT_OF_INDEXES){
     TlsFree(_nested_record_tlsidx);
@@ -124,6 +131,7 @@ static void _set_debug_data(const ::memory::memory_debug_data* debug_data){
 
 
 static void* _malloc(size_t size, const memory_debug_data* dbg_data){
+  _code_initiate();
   __CALL_MEM_INIT(dbg_data)
   void* _result = _config.f_alloc(size, _config.f_data);
   __CALL_MEM_DEINIT()
@@ -131,12 +139,14 @@ static void* _malloc(size_t size, const memory_debug_data* dbg_data){
 }
 
 static void _free(void* obj, const memory_debug_data* dbg_data){
+  _code_initiate();
   __CALL_MEM_INIT(dbg_data)
   _config.f_dealloc(obj, _config.f_data);
   __CALL_MEM_DEINIT()
 }
 
 static void* _realloc(void* target_obj, size_t size, const memory_debug_data* dbg_data){
+  _code_initiate();
   __CALL_MEM_INIT(dbg_data)
   void* _result = _config.f_realloc(target_obj, size, _config.f_data);
   __CALL_MEM_DEINIT()
@@ -221,6 +231,10 @@ class _dynamic_management: public I_dynamic_management{
 
     void set_config(const memory_management_config* config) const override{
       _config = *config;
+    }
+
+    void reset_config() const override{
+      _reset_config();
     }
 
     const memory_management_config* get_config() const override{

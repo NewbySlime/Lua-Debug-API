@@ -1,4 +1,5 @@
 #include "luaapi_util.h"
+#include "luautility.h"
 
 using namespace lua::api;
 
@@ -12,6 +13,8 @@ class _api_util_function: public I_util{
     int dump(void* istate, lua_Writer writer, void* data, int strip) override{return lua_dump((lua_State*)istate, writer, data, strip);}
     int error(void* istate) override{return lua_error((lua_State*)istate);}
     const lua_Number* version(void* istate) override{return lua_version((lua_State*)istate);}
+
+    void* get_main_thread(void* istate) override{return lua::utility::get_main_thread((lua_State*)istate);}
 };
 
 

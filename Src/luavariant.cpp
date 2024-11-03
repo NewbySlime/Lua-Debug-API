@@ -1,3 +1,4 @@
+#include "dllutil.h"
 #include "luaapi_debug.h"
 #include "luaapi_execution.h"
 #include "luaapi_object_util.h"
@@ -41,6 +42,7 @@
 #endif
 
 
+using namespace dynamic_library::util;
 using namespace lua;
 using namespace lua::api;
 using namespace lua::memory;
@@ -53,6 +55,11 @@ static const I_dynamic_management* __dm = get_memory_manager();
 std_logger _default_logger = std_logger();
 const I_logger* _logger = &_default_logger;
 
+
+void _manual_code_initialize(){
+  if(!__dm)
+    __dm = get_memory_manager();
+}
 
 
 
@@ -67,7 +74,9 @@ void lua::set_default_logger(I_logger* logger){
 
 // MARK: variant def
 
-variant::variant(){}
+variant::variant(){
+  _manual_code_initialize();
+}
 
 
 int variant::get_type() const{
@@ -135,6 +144,7 @@ string_var::string_var(const std::string& str){
 }
 
 string_var::string_var(const core* lc, int stack_idx){
+  stack_idx = lc->context->api_stack->absindex(lc->istate, stack_idx);
   _init_class();
   from_state(lc, stack_idx);
 }
@@ -216,6 +226,7 @@ int string_var::get_type() const{
 
 
 bool string_var::from_state(const core* lc, int stack_idx){
+  stack_idx = lc->context->api_stack->absindex(lc->istate, stack_idx);
   int _type = lc->context->api_varutil->get_special_type(lc->istate, stack_idx);
   switch(_type){
     break;
@@ -377,6 +388,7 @@ number_var::number_var(const double& from){
 }
 
 number_var::number_var(const core* lc, int stack_idx){
+  stack_idx = lc->context->api_stack->absindex(lc->istate, stack_idx);
   from_state(lc, stack_idx);
 }
 
@@ -408,6 +420,7 @@ int number_var::get_type() const{
 
 
 bool number_var::from_state(const core* lc, int stack_idx){
+  stack_idx = lc->context->api_stack->absindex(lc->istate, stack_idx);
   _this_data = 0;
 
   int _type = lc->context->api_varutil->get_special_type(lc->istate, stack_idx);
@@ -559,6 +572,7 @@ bool_var::bool_var(const bool& from){
 }
 
 bool_var::bool_var(const core* lc, int stack_idx){
+  stack_idx = lc->context->api_stack->absindex(lc->istate, stack_idx);
   from_state(lc, stack_idx);
 }
 
@@ -587,6 +601,7 @@ int bool_var::get_type() const{
 
 
 bool bool_var::from_state(const core* lc, int stack_idx){
+  stack_idx = lc->context->api_stack->absindex(lc->istate, stack_idx);
   _this_data = true;
 
   int _type = lc->context->api_varutil->get_special_type(lc->istate, stack_idx);
@@ -686,6 +701,20 @@ struct _self_reference_data{
 
 std::map<std::thread::id, _self_reference_data*>* _sr_data_map = NULL;
 
+static void _table_var_code_initiate();
+static void _table_var_code_deinitiate();
+static destructor_helper _table_var_dh(_table_var_code_deinitiate);
+
+static void _table_var_code_initiate(){
+  if(!_sr_data_map)
+    _sr_data_map = __dm->new_class_dbg<std::map<std::thread::id, _self_reference_data*>>(DYNAMIC_MANAGEMENT_DEBUG_DATA);
+}
+
+static void _table_var_code_deinitiate(){
+  if(_sr_data_map)
+    __dm->delete_class_dbg(_sr_data_map, DYNAMIC_MANAGEMENT_DEBUG_DATA);
+}
+
 
 // Create copy of a table
 table_var::table_var(){
@@ -708,6 +737,7 @@ table_var::table_var(const I_table_var* var){
 
 // Create a reference
 table_var::table_var(const core* lc, int stack_idx){
+  stack_idx = lc->context->api_stack->absindex(lc->istate, stack_idx);
   _init_class();
   from_state(lc, stack_idx);
 }
@@ -720,9 +750,7 @@ table_var::~table_var(){
 
 
 void table_var::_init_class(){
-  if(!_sr_data_map)
-    _sr_data_map = __dm->new_class_dbg<std::map<std::thread::id, _self_reference_data*>>(DYNAMIC_MANAGEMENT_DEBUG_DATA);
-
+  _table_var_code_initiate();
   _init_keys_reg();
 }
 
@@ -742,6 +770,7 @@ void table_var::_clear_table_data(){
     __dm->delete_class_dbg(_iter.second, DYNAMIC_MANAGEMENT_DEBUG_DATA);
 
   _table_data->clear();
+  _update_keys_reg();
 }
 
 void table_var::_clear_table_reference_data(){
@@ -810,6 +839,7 @@ void table_var::_copy_from_var(const I_table_var* data){
       const I_variant* _value_data = data->get_value(_key_data);
       set_value(_key_data, _value_data);
 
+      data->free_variant(_value_data);
       _idx++;
     }
   }
@@ -884,13 +914,15 @@ variant* table_var::_get_value_by_interface(const I_variant* key) const{
 
   // get value s+1
   key->push_to_stack(&_lc);
-  _lc.context->api_value->gettable(_lc.istate, -2);
-
-  // create compilation specific copy
-  // TODO need optimization
-  I_variant* _res_tmp = _lc.context->api_varutil->to_variant(_lc.istate, -1);
-  variant* _res = cpplua_create_var_copy(_res_tmp);
-  _lc.context->api_varutil->delete_variant(_res_tmp);
+  int _type = _lc.context->api_value->gettable(_lc.istate, -2);
+  variant* _res = NULL;
+  if(_type != LUA_TNIL){
+    // create compilation specific copy
+    // TODO need optimization
+    I_variant* _res_tmp = _lc.context->api_varutil->to_variant(_lc.istate, -1);
+    _res = cpplua_create_var_copy(_res_tmp);
+    _lc.context->api_varutil->delete_variant(_res_tmp);
+  }
 
   _lc.context->api_stack->pop(_lc.istate, 2);
   return _res;
@@ -1069,12 +1101,32 @@ void table_var::_clear_keys_reg(){
 }
 
 
+int table_var::_compare_with(const variant* rhs) const{
+  table_var* _rhs = (table_var*)rhs;
+  if(_is_ref != _rhs->_is_ref)
+    return _is_ref > _rhs->_is_ref? 1: -1;
+
+  if(!_is_ref){
+    if(this == _rhs)
+      return 0;
+    
+    return this > _rhs? 1: -1;
+  }
+
+  if(_table_pointer == _rhs->_table_pointer)
+    return 0;
+
+  return _table_pointer > _rhs->_table_pointer? 1: -1;
+}
+
+
 int table_var::get_type() const{
   return LUA_TTABLE;
 }
 
 
 bool table_var::from_state(const core* lc, int stack_idx){
+  stack_idx = lc->context->api_stack->absindex(lc->istate, stack_idx);
   _clear_table();
 
   // use the core in the argument first
@@ -1105,6 +1157,7 @@ bool table_var::from_state(const core* lc, int stack_idx){
 }
 
 bool table_var::from_state_copy(const core* lc, int stack_idx){
+  stack_idx = lc->context->api_stack->absindex(lc->istate, stack_idx);
   _clear_table();
   _table_data = __dm->new_class_dbg<std::map<comparison_variant, variant*>>(DYNAMIC_MANAGEMENT_DEBUG_DATA);
 
@@ -1255,7 +1308,7 @@ void table_var::as_copy(){
 
   push_to_stack(&_lc);
   from_state_copy(&_lc, -1);
-  _lc.context->api_stack->pop(&_lc, 1);
+  _lc.context->api_stack->pop(_lc.istate, 1);
 }
 
 
@@ -1269,6 +1322,11 @@ const void* table_var::get_table_pointer() const{
 
 const core* table_var::get_lua_core() const{
   return &_lc;
+}
+
+
+void table_var::free_variant(const I_variant* var) const{
+  cpplua_delete_variant(var);
 }
 
 
@@ -1293,6 +1351,7 @@ lightuser_var::lightuser_var(void* pointer){
 }
 
 lightuser_var::lightuser_var(const core* lc, int stack_idx){
+  stack_idx = lc->context->api_stack->absindex(lc->istate, stack_idx);
   from_state(lc, stack_idx);
 }
 
@@ -1325,6 +1384,7 @@ int lightuser_var::get_type() const{
 
 
 bool lightuser_var::from_state(const core* lc, int stack_idx){
+  stack_idx = lc->context->api_stack->absindex(lc->istate, stack_idx);
   int _type = lc->context->api_varutil->get_special_type(lc->istate, stack_idx);
   if(_type != get_type()){
     _logger->print_error(format_str_mem(__dm, "Mismatched type when converting at stack (%d). (%s-%s)\n",
@@ -1426,6 +1486,7 @@ function_var::function_var(const void* chunk_buf, size_t len, const char* chunk_
 }
 
 function_var::function_var(const core* lc, int stack_idx){
+  stack_idx = lc->context->api_stack->absindex(lc->istate, stack_idx);
   _init_class();
   from_state(lc, stack_idx);
 }
@@ -1561,10 +1622,21 @@ const char* function_var::_fn_chunk_data_reader(lua_State* state, void* data, si
 
 int function_var::_compare_with(const variant* rhs) const{
   function_var* _rhs = (function_var*)rhs;
-  if(_this_fn == _rhs->_this_fn)
+  if(_is_reference != _rhs->_is_reference)
+    return _is_reference > _rhs->_is_reference? 1: -1;
+
+  // return based on this pointer
+  if(!_is_reference){
+    if(this == _rhs)
+      return 0;
+
+    return this > _rhs? 1: -1;
+  }
+
+  if(_func_pointer == _rhs->_func_pointer)
     return 0;
 
-  return _this_fn < _rhs->_this_fn? -1: 1;
+  return _func_pointer > _rhs->_func_pointer? 1: -1;
 }
 
 
@@ -1574,6 +1646,7 @@ int function_var::get_type() const{
 
 
 bool function_var::from_state(const core* lc, int stack_idx){
+  stack_idx = lc->context->api_stack->absindex(lc->istate, stack_idx);
   _clear_function_data();
 
   int _type = lc->context->api_varutil->get_special_type(lc->istate, stack_idx);
@@ -1601,6 +1674,7 @@ bool function_var::from_state(const core* lc, int stack_idx){
 }
 
 bool function_var::from_state_copy(const core* lc, int stack_idx){
+  stack_idx = lc->context->api_stack->absindex(lc->istate, stack_idx);
   _clear_function_data();
 
   int _type = lc->context->api_varutil->get_special_type(lc->istate, stack_idx);
@@ -1660,6 +1734,8 @@ bool function_var::from_state_copy(const core* lc, int stack_idx){
     if(verify_lua_version(cpplua_get_api_compilation_context(), lc->context)){
       // Prepare the buffer
       _fn_binary_data = __dm->malloc(0, DYNAMIC_MANAGEMENT_DEBUG_DATA);
+      // Copy function for dump and getinfo (deleted at getinfo)
+      lc->context->api_stack->pushvalue(lc->istate, stack_idx);
       lc->context->api_util->dump(lc->istate, _fn_chunk_data_writer, this, FUNCTION_LUA_COPY_STRIP_DBG);
 
       // Get function name (by debug functions)
@@ -1667,18 +1743,12 @@ bool function_var::from_state_copy(const core* lc, int stack_idx){
       lua_Debug* _idbg = (lua_Debug*)lc->context->api_debug->create_lua_debug_obj();
       lc->context->api_debug->getstack(lc->istate, 0, _idbg);
 
-      // As the argument of lua_getinfo
-      lc->context->api_stack->pushvalue(lc->istate, stack_idx);
-
       lc->context->api_debug->getinfo(lc->istate, ">n", _idbg);
       size_t _nlen = _idbg->name? strlen(_idbg->name): 0;
       _fn_binary_name = (char*)__dm->malloc(_nlen+1, DYNAMIC_MANAGEMENT_DEBUG_DATA); // With null-termination character
       if(_idbg->name)
         memcpy(_fn_binary_name, _idbg->name, _nlen);
       _fn_binary_name[_nlen] = '\0';
-
-      // Pop copy of function
-      lc->context->api_stack->pop(lc->istate, 1);
 
       lc->context->api_debug->delete_lua_debug_obj(_idbg);
     }
@@ -1908,7 +1978,7 @@ void function_var::as_copy(){
 
   push_to_stack(&_lc);
   from_state_copy(&_lc, -1);
-  _lc.context->api_stack->pop(&_lc, 1);
+  _lc.context->api_stack->pop(_lc.istate, 1);
 }
 
 
@@ -1942,6 +2012,7 @@ error_var::error_var(const I_variant* data, long long code){
 }
 
 error_var::error_var(const core* lc, int stack_idx){
+  stack_idx = lc->context->api_stack->absindex(lc->istate, stack_idx);
   from_state(lc, stack_idx);
 }
 
@@ -1970,6 +2041,7 @@ int error_var::get_type() const{
 
 
 bool error_var::from_state(const core* lc, int stack_idx){
+  stack_idx = lc->context->api_stack->absindex(lc->istate, stack_idx);
   _clear_object();
   _err_data = to_variant(lc, stack_idx);
 
@@ -2035,6 +2107,7 @@ object_var::object_var(const core* lc, I_object* obj){
 }
 
 object_var::object_var(const core* lc, int stack_idx){
+  stack_idx = lc->context->api_stack->absindex(lc->istate, stack_idx);
   from_state(lc, stack_idx);
 }
 
@@ -2069,12 +2142,22 @@ std::string object_var::_get_reference_key(void* idata){
 }
 
 
+int object_var::_compare_with(const variant* rhs) const{
+  object_var* _rhs = (object_var*)rhs;
+  if(_obj == _rhs->_obj)
+    return 0;
+
+  return _obj > _rhs->_obj? 1: -1;
+}
+
+
 int object_var::get_type() const{
   return LUA_TCPPOBJECT;
 }
 
 
 bool object_var::from_state(const core* lc, int stack_idx){
+  stack_idx = lc->context->api_stack->absindex(lc->istate, stack_idx);
   _clear_object();
 
   int _type = lc->context->api_varutil->get_special_type(lc->istate, stack_idx);
@@ -2101,6 +2184,9 @@ bool object_var::from_state(const core* lc, int stack_idx){
 
 bool object_var::from_object_reference(const core* lc, I_object* obj){
   _clear_object();
+  
+  if(!obj)
+    return false;
 
   _lc = *lc;
   _obj = obj;

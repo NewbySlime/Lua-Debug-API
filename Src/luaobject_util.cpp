@@ -220,6 +220,8 @@ void lua::object::push_object_to_table(lua_State* state, I_object* object, int t
     lua_settable(state, -3);
   }
 
+  set_special_type(state, table_idx, LUA_TCPPOBJECT);
+
   lua_pushvalue(state, table_idx);
   object->on_object_added(&_lc);
   lua_pop(state, 1);

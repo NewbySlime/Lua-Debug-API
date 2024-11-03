@@ -14,6 +14,8 @@ namespace lua::api{
       virtual int dump(void* istate, lua_Writer writer, void* data, int strip) = 0;
       virtual int error(void* istate) = 0;
       virtual const lua_Number* version(void* istate) = 0;
+
+      virtual void* get_main_thread(void* istate) = 0;
   };
 }
 

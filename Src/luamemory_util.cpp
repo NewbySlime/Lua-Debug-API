@@ -22,6 +22,10 @@ void lua::memory::set_memory_manager_config(const memory_management_config* conf
   MEMDYNAMIC_MANAGEMENT_GET_STATIC_INSTANCE()->set_config(config);
 }
 
+void lua::memory::reset_memory_manager_config(){
+  MEMDYNAMIC_MANAGEMENT_GET_STATIC_INSTANCE()->reset_config();
+}
+
 
 static void* __lua_alloc(void* ud, void* ptr, size_t osize, size_t nsize){
   I_dynamic_management* __dm = MEMDYNAMIC_MANAGEMENT_GET_STATIC_INSTANCE();
