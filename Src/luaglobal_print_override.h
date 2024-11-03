@@ -15,6 +15,7 @@
 
 
 namespace lua::global{
+  // [Thread-Safe]
   class I_print_override: public I_debug_user{
     public:
       virtual ~I_print_override(){}
@@ -31,6 +32,8 @@ namespace lua::global{
       virtual void register_event_read(HANDLE event) = 0;
       virtual void remove_event_read(HANDLE event) = 0;
 #endif
+
+      virtual void* get_lua_interface_state() const = 0;
   };
 
 
@@ -79,8 +82,11 @@ namespace lua::global{
       void remove_event_read(HANDLE event) override;
 #endif
 
+      void* get_lua_interface_state() const override;
+
       void set_logger(I_logger* logger) override;
   };
+  
 #endif // LUA_CODE_EXISTS
 
 }

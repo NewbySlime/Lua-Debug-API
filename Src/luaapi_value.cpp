@@ -76,7 +76,6 @@ class _api_value_function: public I_value{
     void* tothread(void* istate, int idx) override{return lua_tothread((lua_State*)istate, idx);}
     void* touserdata(void* istate, int idx) override{return lua_touserdata((lua_State*)istate, idx);}
     int type(void* istate, int idx) override{return lua_type((lua_State*)istate, idx);}
-
     const char* ttypename(void* istate, int type) override{
       switch(type){
         break; case LUA_TERROR:

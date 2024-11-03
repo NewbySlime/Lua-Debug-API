@@ -1,5 +1,6 @@
 #include "luaapi_core.h"
 #include "luacpp_error_handling.h"
+#include "luamemory_util.h"
 #include "luaobject_util.h"
 #include "luastack_iter.h"
 #include "luautility.h"
@@ -12,11 +13,16 @@
 
 using namespace lua;
 using namespace lua::api;
+using namespace lua::memory;
 using namespace lua::object;
 using namespace lua::utility;
+using namespace ::memory;
 
 
 // MARK: function_store definition
+
+static const I_dynamic_management* __dm = get_memory_manager();
+
 
 function_store::function_store(object_destructor_func destructor){
   _deinit_func = destructor;
@@ -81,14 +87,14 @@ static int _on_obj_called(lua_State* state){
     I_object* _obj = get_object_from_table(state, 1);
     if(!_obj){
       string_var _err_msg = "[CPPLua] Cannot call function, object already deinstantiated.";
-      throw new error_var(&_err_msg, -1);
+      throw __dm->new_class_dbg<error_var>(DYNAMIC_MANAGEMENT_DEBUG_DATA, &_err_msg, -1);
     }
 
     int _func_idx = lua_tointeger(state, lua_upvalueindex(1));
     I_object::lua_function _lf = _obj->get_function(_func_idx);
     if(!_lf){
       string_var _err_msg = "[CPPLua] Cannot call function, object does not have the intended function.";
-      throw new error_var(&_err_msg, -1);
+      throw __dm->new_class_dbg<error_var>(DYNAMIC_MANAGEMENT_DEBUG_DATA, &_err_msg, -1);
     }
 
     vararr _result_arr, _arg_arr;
@@ -213,6 +219,8 @@ void lua::object::push_object_to_table(lua_State* state, I_object* object, int t
     
     lua_settable(state, -3);
   }
+
+  set_special_type(state, table_idx, LUA_TCPPOBJECT);
 
   lua_pushvalue(state, table_idx);
   object->on_object_added(&_lc);

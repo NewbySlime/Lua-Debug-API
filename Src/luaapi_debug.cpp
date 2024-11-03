@@ -1,9 +1,16 @@
 #include "luaapi_debug.h"
+#include "luamemory_util.h"
 
 using namespace lua::api;
+using namespace lua::debug;
+using namespace lua::memory;
+using namespace ::memory;
 
 
 #ifdef LUA_CODE_EXISTS
+
+static const I_dynamic_management* __dm = get_memory_manager(); 
+
 
 class _api_debug_function: public I_debug{
   public:
@@ -21,11 +28,19 @@ class _api_debug_function: public I_debug{
     void upvaluejoin(void* istate, int fidx1, int n1, int fidx2, int n2) override{lua_upvaluejoin((lua_State*)istate, fidx1, n1, fidx2, n2);}
 
     void* create_lua_debug_obj() override{
-      return new lua_Debug();
+      return __dm->malloc(sizeof(lua_Debug), DYNAMIC_MANAGEMENT_DEBUG_DATA);
     }
 
     void delete_lua_debug_obj(void* dbg_obj) override{
-      delete dbg_obj;
+      __dm->free(dbg_obj, DYNAMIC_MANAGEMENT_DEBUG_DATA);
+    }
+
+    I_variable_watcher* create_variable_watcher(void* istate) override{
+      return cpplua_create_variable_watcher(istate);
+    }
+
+    void delete_variable_watcher(I_variable_watcher* object) override{
+      cpplua_delete_variable_watcher(object);
     }
 };
 

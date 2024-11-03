@@ -1,6 +1,7 @@
 #include "luaapi_stack.h"
 #include "luaapi_value.h"
 #include "luaapi_variant_util.h"
+#include "luamemory_util.h"
 #include "luastack_iter.h"
 #include "luautility.h"
 #include "luavariant_util.h"
@@ -9,54 +10,54 @@
 
 using namespace lua;
 using namespace lua::api;
+using namespace lua::memory;
 using namespace lua::utility;
+using namespace ::memory;
 
 
 #define VARIANT_SPECIAL_TYPE_KEY_REG "__clua_special_type"
 
 
+static const I_dynamic_management* __dm = get_memory_manager();
+
 
 // MARK: to_variant
 
 variant* lua::to_variant(const core* lc, int stack_idx){
-  variant* _result;
-
   int _type = lc->context->api_varutil->get_special_type(lc->istate, stack_idx);
   switch(_type){
     break; case number_var::get_static_lua_type():{
-      _result = new number_var(lc, stack_idx);
+      return __dm->new_class_dbg<number_var>(DYNAMIC_MANAGEMENT_DEBUG_DATA, lc, stack_idx);
     }
 
     break; case string_var::get_static_lua_type():{
-      _result = new string_var(lc, stack_idx);
+      return __dm->new_class_dbg<string_var>(DYNAMIC_MANAGEMENT_DEBUG_DATA, lc, stack_idx);
     }
 
     break; case bool_var::get_static_lua_type():{
-      _result = new bool_var(lc, stack_idx);
+      return __dm->new_class_dbg<bool_var>(DYNAMIC_MANAGEMENT_DEBUG_DATA, lc, stack_idx);
     }
 
     break; case table_var::get_static_lua_type():{
-      _result = new table_var(lc, stack_idx);
+      return __dm->new_class_dbg<table_var>(DYNAMIC_MANAGEMENT_DEBUG_DATA, lc, stack_idx);
     }
 
     break; case lightuser_var::get_static_lua_type():{
-      _result = new lightuser_var(lc, stack_idx);
+      return __dm->new_class_dbg<lightuser_var>(DYNAMIC_MANAGEMENT_DEBUG_DATA, lc, stack_idx);
     }
 
     break; case function_var::get_static_lua_type():{
-      _result = new function_var(lc, stack_idx);
+      return __dm->new_class_dbg<function_var>(DYNAMIC_MANAGEMENT_DEBUG_DATA, lc, stack_idx);
     }
 
     break; case object_var::get_static_lua_type():{
-      _result = new object_var(lc, stack_idx);
+      return __dm->new_class_dbg<object_var>(DYNAMIC_MANAGEMENT_DEBUG_DATA, lc, stack_idx);
     }
 
     break; default:{
-      _result = new variant();
+      return __dm->new_class_dbg<variant>(DYNAMIC_MANAGEMENT_DEBUG_DATA);
     }
   }
-
-  return _result;
 }
 
 variant* lua::to_variant_fglobal(const core* lc, const char* global_name){
@@ -69,7 +70,7 @@ variant* lua::to_variant_fglobal(const core* lc, const char* global_name){
 
 variant* lua::to_variant_ref(const core* lc, int stack_idx){
   const void* _pointer_ref = lc->context->api_value->topointer(lc->istate, stack_idx);
-  string_var* _var_res = new string_var(format_str("p_ref 0x%X", _pointer_ref));
+  string_var* _var_res = __dm->new_class_dbg<string_var>(DYNAMIC_MANAGEMENT_DEBUG_DATA, format_str_mem(__dm, "p_ref 0x%X", _pointer_ref));
 
   return _var_res;
 }
@@ -129,6 +130,9 @@ void lua::set_special_type(lua_State* state, int stack_idx, int new_type){
   lua_pushstring(state, VARIANT_SPECIAL_TYPE_KEY_REG);
   lua_pushinteger(state, new_type);
   lua_settable(state, -3); // set data in metatable
+
+  // pop the metatable
+  lua_pop(state, 1);
 }
 
 int lua::get_special_type(lua_State* state, int stack_idx){

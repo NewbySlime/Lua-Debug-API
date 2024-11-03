@@ -79,6 +79,7 @@ static void swapextra (lua_State *L) {
 ** always checked before being called (see 'luaD_hook').
 */
 LUA_API void lua_sethook (lua_State *L, lua_Hook func, int mask, int count) {
+  lua_swapwithtdependent(L);
   if (func == NULL || mask == 0) {  /* turn off hooks? */
     mask = 0;
     func = NULL;
@@ -93,21 +94,25 @@ LUA_API void lua_sethook (lua_State *L, lua_Hook func, int mask, int count) {
 
 
 LUA_API lua_Hook lua_gethook (lua_State *L) {
+  lua_swapwithtdependent(L);
   return L->hook;
 }
 
 
 LUA_API int lua_gethookmask (lua_State *L) {
+  lua_swapwithtdependent(L);
   return L->hookmask;
 }
 
 
 LUA_API int lua_gethookcount (lua_State *L) {
+  lua_swapwithtdependent(L);
   return L->basehookcount;
 }
 
 
 LUA_API int lua_getstack (lua_State *L, int level, lua_Debug *ar) {
+  lua_swapwithtdependent(L);
   int status;
   CallInfo *ci;
   if (level < 0) return 0;  /* invalid (negative) level */
@@ -170,6 +175,7 @@ static const char *findlocal (lua_State *L, CallInfo *ci, int n,
 
 
 LUA_API const char *lua_getlocal (lua_State *L, const lua_Debug *ar, int n) {
+  lua_swapwithtdependent(L);
   const char *name;
   lua_lock(L);
   swapextra(L);
@@ -194,6 +200,7 @@ LUA_API const char *lua_getlocal (lua_State *L, const lua_Debug *ar, int n) {
 
 
 LUA_API const char *lua_setlocal (lua_State *L, const lua_Debug *ar, int n) {
+  lua_swapwithtdependent(L);
   StkId pos = NULL;  /* to avoid warnings */
   const char *name;
   lua_lock(L);
@@ -308,6 +315,7 @@ static int auxgetinfo (lua_State *L, const char *what, lua_Debug *ar,
 
 
 LUA_API int lua_getinfo (lua_State *L, const char *what, lua_Debug *ar) {
+  lua_swapwithtdependent(L);
   int status;
   Closure *cl;
   CallInfo *ci;

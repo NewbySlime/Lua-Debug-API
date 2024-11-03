@@ -1,19 +1,28 @@
+#include "luainternal_storage.h"
+#include "lualibrary_loader.h"
+#include "luamemory_util.h"
+#include "luaobject_util.h"
+#include "luautility.h"
 #include "luavariant.h"
 #include "luavariant_util.h"
-#include "lualibrary_loader.h"
-#include "luaobject_util.h"
-#include "stdlogger.h"
+#include "std_logger.h"
 
 #define LUD_LIBRARY_LOADER_VAR_NAME " __clua_library_loader"
 
 using namespace lua;
+using namespace lua::internal;
+using namespace lua::memory;
 using namespace lua::object;
+using namespace ::memory;
 
 
 #ifdef LUA_CODE_EXISTS
 
+static const I_dynamic_management* __dm = get_memory_manager();
+
+
 library_loader::library_loader(lua_State* state){
-  _logger = get_stdlogger();
+  _logger = get_std_logger();
 
   _this_state = NULL;
 
@@ -49,17 +58,31 @@ int library_loader::_requiref_cb(lua_State* state){
 
 
 void library_loader::_set_attached_object(lua_State* state, library_loader* object){
-  lightuser_var _lud_var = object;
-  set_global(state, LUD_LIBRARY_LOADER_VAR_NAME, &_lud_var);
+  require_internal_storage(state); // s+1
+
+  // set object to internal storage
+  lua_pushstring(state, LUD_LIBRARY_LOADER_VAR_NAME); // s+1
+  lua_pushlightuserdata(state, object); // s+1
+  lua_settable(state, -3); // s-2
+
+  // pop internal storage
+  lua_pop(state, 1); // s-1
 }
 
 
 library_loader* library_loader::get_attached_object(lua_State* state){
-  variant* _lud_var = to_variant_fglobal(state, LUD_LIBRARY_LOADER_VAR_NAME);
-  library_loader* _result =
-    (library_loader*)(_lud_var->get_type() == lightuser_var::get_static_lua_type()?((lightuser_var*)_lud_var)->get_data(): NULL);
+  library_loader* _result = NULL;
 
-  delete _lud_var;
+  require_internal_storage(state); // s+1
+
+  // get object from internal storage
+  lua_pushstring(state, LUD_LIBRARY_LOADER_VAR_NAME); // s+1
+  lua_gettable(state, -2); // s-1+1
+  if(lua_type(state, -1) == LUA_TLIGHTUSERDATA)
+    _result = (library_loader*)lua_touserdata(state, -1);
+
+  // pop table result and internal storage
+  lua_pop(state, 2); // s-2
   return _result;
 }
 
@@ -77,15 +100,14 @@ bool library_loader::load_library(const char* lib_name, I_object* lib_object){
   }
 
   luaL_requiref(_this_state, lib_name, _requiref_cb, true);
-  
-  lua_newtable(_this_state);
 
   // try to deinit current object
-  if(lua_getmetatable(_this_state, -2))
-    lua_setmetatable(_this_state, -2);
+  if(lua_getmetatable(_this_state, -1)){
+    lua_pop(_this_state, 1); // pop the fetched metatable first
 
-  // pop the new table to remove it with the metatable (object)
-  lua_pop(_this_state, 1);
+    lua_newtable(_this_state);
+    lua_setmetatable(_this_state, -2);
+  }
 
   push_object_to_table(_this_state, lib_object, -1);
 
@@ -107,6 +129,18 @@ I_object* library_loader::get_library_object(const char* lib_name) const{
 
 void library_loader::set_logger(I_logger* logger){
   _logger = logger;
+}
+
+
+
+// MARK: DLL definitions
+
+DLLEXPORT lua::I_library_loader* CPPLUA_CREATE_LIBRARY_LOADER(void* istate){
+  return __dm->new_class_dbg<library_loader>(DYNAMIC_MANAGEMENT_DEBUG_DATA, (lua_State*)istate);
+}
+
+DLLEXPORT void CPPLUA_DELETE_LIBRARY_LOADER(lua::I_library_loader* object){
+  __dm->delete_class_dbg(object, DYNAMIC_MANAGEMENT_DEBUG_DATA);
 }
 
 #endif // LUA_CODE_EXISTS

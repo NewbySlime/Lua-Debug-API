@@ -7,15 +7,19 @@
 
 // This code will be statically bind to the compilation file
 // If a code returns an interface (I_xx) create a copy with using statically linked compilation function if the code that returns comes from dynamic library
+// NOTE: Objects in the code is not Thread-Safe.
 
 namespace lua{
   class I_vararr{
     public:
       virtual ~I_vararr(){}
 
+      // Function will not create a copy to return.
       virtual const lua::I_variant* get_var(int idx) const = 0;
 
+      // Function will create a copy to store.
       virtual bool set_var(const lua::I_variant* data, int idx) = 0;
+      // Function will create a copy to store.
       virtual void append_var(const lua::I_variant* data) = 0;
 
       virtual void append(const I_vararr* arr) = 0;

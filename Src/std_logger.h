@@ -1,12 +1,12 @@
-#ifndef STDLOGGER_HEADER
-#define STDLOGGER_HEADER
+#ifndef STD_LOGGER_HEADER
+#define STD_LOGGER_HEADER
 
 #include "I_logger.h"
 
 
 // This code will be statically bind to the compilation file
 
-class stdlogger: public I_logger{
+class std_logger: public I_logger{
   public:
     void print(std::string message) const;
     void print_warning(std::string message) const;
@@ -18,7 +18,7 @@ class stdlogger: public I_logger{
 };
 
 
-I_logger* get_stdlogger();
+I_logger* get_std_logger();
 
 
 #endif

@@ -8,6 +8,7 @@ namespace lua{
   // NOTE: "reference initiated" means that the reference (metadata) already created or reference has been incremented from the current reference object at the time of the reference object contruction.
   //  This is different from "reference created", which means the metadata for storing the referencing data hasn't been created.
   //  If the reference never updated/initiated, value_ref cannot hold the reference. Which any value_ref can delete the reference metadata even when a value_ref explicitly uses those reference keys.
+  // [Thread-Safe, only uses Lua's API]
   class value_ref{
     private:
       std::string _ref_key;
