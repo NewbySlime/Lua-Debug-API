@@ -26,9 +26,9 @@ namespace lua::state{
   };
 
 
-  // Metadata will be stored in extra space. The object will not be stored in global or internal storage.
+  // Metadata will be stored im program stack (in luastate_metadata.cpp). The object will not be stored in global or internal storage.
   I_metadata* initiate_metadata(lua_State* state);
-  void deinitiate_metadata(lua_State* state);
+  void deinitiate_metadata(lua_State* state, bool is_mainthread = false);
   I_metadata* get_metadata(lua_State* state);
 }
 

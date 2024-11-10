@@ -128,6 +128,8 @@ void thread_handle::_hook_cb_static(lua_State* state, void* cbdata){
 
 void thread_handle::stop_running(){
   _signal_stop();
+
+  _exec_flow->resume_execution();
   _wait_for_thread_stop();
 }
 

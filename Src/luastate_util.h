@@ -12,6 +12,7 @@ namespace lua{
 
 
 void luastate_util_initstate(lua_State*);
-void luastate_util_deinitstate(lua_State*);
+void luastate_util_deinitstate_start(lua_State*);
+void luastate_util_deinitstate_finish(lua_State*);
 
 #endif

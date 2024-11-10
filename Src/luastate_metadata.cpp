@@ -1,18 +1,22 @@
 #ifdef LUA_CODE_EXISTS
 
+#include "dllutil.h"
 #include "luainternal_storage.h"
 #include "luamemory_util.h"
 #include "luastate_metadata.h"
 #include "luautility.h"
 
+#include "../LuaSrc/lstate.h"
+
 #include "map"
-#include "set"
+#include "set"  
 
 #if (_WIN64) || (_WIN32)
 #include "Windows.h"
 #endif
 
 
+using namespace dynamic_library::util;
 using namespace lua;
 using namespace lua::internal;
 using namespace lua::memory;
@@ -21,10 +25,69 @@ using namespace lua::state;
 using namespace lua::utility;
 using namespace ::memory;
 
-#define METADATA_OBJECT_KEY "__cpplua_state_metadata"
 
+typedef std::map<void*, I_metadata*> metadata_mapping;
 
 static I_dynamic_management* __dm = get_memory_manager();
+
+static metadata_mapping* _metadata_data = NULL;
+
+#if (_WIN64) || (_WIN32)
+static CRITICAL_SECTION* _code_mutex = NULL;
+#endif
+
+static void _lock_code();
+static void _unlock_code();
+
+static void _code_initiate();
+static void _code_deinitiate();
+static destructor_helper _dh(_code_deinitiate);
+
+
+static void _code_initiate(){
+  if(!_metadata_data)
+    _metadata_data = __dm->new_class_dbg<metadata_mapping>(DYNAMIC_MANAGEMENT_DEBUG_DATA);
+  
+#if (_WIN64) || (_WIN32)
+  if(!_code_mutex){
+    _code_mutex = (CRITICAL_SECTION*)__dm->malloc(sizeof(CRITICAL_SECTION), DYNAMIC_MANAGEMENT_DEBUG_DATA);
+    InitializeCriticalSection(_code_mutex);
+  }
+#endif
+}
+
+static void _code_deinitiate(){
+  if(_metadata_data){
+    _lock_code();
+    for(auto mpair: *_metadata_data)
+      __dm->delete_class_dbg(mpair.second, DYNAMIC_MANAGEMENT_DEBUG_DATA);
+
+    __dm->delete_class_dbg(_metadata_data, DYNAMIC_MANAGEMENT_DEBUG_DATA);
+    _metadata_data = NULL;
+    _unlock_code();
+  }
+
+#if (_WIN64) || (_WIN32)
+  if(_code_mutex){
+    DeleteCriticalSection(_code_mutex);
+    __dm->free(_code_mutex, DYNAMIC_MANAGEMENT_DEBUG_DATA);
+    _code_mutex = NULL;
+  }
+#endif
+}
+
+
+static void _lock_code(){
+#if (_WIN64) || (_WIN32)
+  EnterCriticalSection(_code_mutex);
+#endif
+}
+
+static void _unlock_code(){
+#if (_WIN64) || (_WIN32)
+  LeaveCriticalSection(_code_mutex);
+#endif
+}
 
 
 static void _def_destructor_metadata(I_object* obj){
@@ -117,29 +180,66 @@ class metadata: public I_metadata, public lua::object::function_store, virtual p
 
 
 I_metadata* lua::state::initiate_metadata(lua_State* state){
-  I_metadata* _this_metadata = get_metadata(state);
-  if(_this_metadata)
-    return _this_metadata;
+  _code_initiate();
+  _lock_code();
+
+  I_metadata* _this_metadata = NULL;
+
+{ // enclosure for using gotos
+  auto _iter = _metadata_data->find(state->l_G->mainthread);
+  if(_iter != _metadata_data->end()){
+    _this_metadata = _iter->second;
+    goto skip_to_return;
+  }
 
   _this_metadata = __dm->new_class_dbg<metadata>(DYNAMIC_MANAGEMENT_DEBUG_DATA, state);
-  void** _extraspace = (void**)lua_getextraspace(state);
-  *_extraspace = _this_metadata;
+  _metadata_data->operator[](state->l_G->mainthread) = _this_metadata;
+} // enclosure closing
+
+  skip_to_return:{}
+  _unlock_code();
   return _this_metadata;
 }
 
-void lua::state::deinitiate_metadata(lua_State* state){
-  I_metadata* _this_metadata = get_metadata(state);
-  if(!_this_metadata)
+void lua::state::deinitiate_metadata(lua_State* state, bool is_mainthread){
+  if(!_metadata_data)
     return;
 
-  __dm->delete_class_dbg(_this_metadata, DYNAMIC_MANAGEMENT_DEBUG_DATA);
-  void** _extraspace = (void**)lua_getextraspace(state);
-  *_extraspace = NULL;
+  _lock_code();
+
+{ // enclosure for using gotos
+  if(!is_mainthread)
+    state = state->l_G->mainthread;
+
+  auto _iter = _metadata_data->find(state);
+  if(_iter == _metadata_data->end())
+    goto skip_to_return;
+
+  __dm->delete_class_dbg(_iter->second, DYNAMIC_MANAGEMENT_DEBUG_DATA);
+  _metadata_data->erase(_iter);
+} // enclosure closing
+
+  skip_to_return:{}
+  _unlock_code();
 }
 
 I_metadata* lua::state::get_metadata(lua_State* state){
-  void** _extraspace = (void**)lua_getextraspace(state);
-  return (metadata*)*_extraspace;
+  _code_initiate();
+  _lock_code();
+
+  I_metadata* _result = NULL;
+
+{ // enclosure for using gotos
+  auto _iter = _metadata_data->find(state->l_G->mainthread);
+  if(_iter == _metadata_data->end())
+    goto skip_to_return;
+
+  _result = _iter->second;
+} // enclosure closing
+  
+  skip_to_return:{}
+  _unlock_code();
+  return _result;
 }
 
 

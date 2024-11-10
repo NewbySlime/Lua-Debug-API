@@ -12,7 +12,7 @@
 #endif
 
 
-using namespace lua;
+using namespace lua; 
 using namespace lua::internal;
 using namespace lua::memory;
 using namespace lua::state;
@@ -30,18 +30,27 @@ lua_State* lua::newstate(){
 
 
 void luastate_util_initstate(lua_State* lstate){
-  memset(lua_getextraspace(lstate), 0, LUA_EXTRASPACE);
+  // just in case
+  deinitiate_metadata(lstate);
   initiate_metadata(lstate);
+  
   require_state_mutex(lstate);
   
-  initiate_internal_storage(lstate);
-
+  // just in case
+  reset_dependent_state(lstate);
   // trigger get dependent state
   require_dependent_state(lstate);
+  
+  initiate_internal_storage(lstate);
 }
 
-void luastate_util_deinitstate(lua_State* lstate){
-  deinitiate_metadata(lstate);
+void luastate_util_deinitstate_start(lua_State* lstate){
+
+}
+
+void luastate_util_deinitstate_finish(lua_State* lstate){
+  reset_dependent_state(lstate, true);
+  deinitiate_metadata(lstate, true);
 }
 
 

@@ -24,6 +24,7 @@ namespace lua::thread{
   
   // Get a thread dependent state that is based on the calling thread. Will create a new lua_State if not exists for current calling thread. 
   lua_State* require_dependent_state(lua_State* state);
+  void reset_dependent_state(lua_State* state, bool is_mainthread = false);
 
   // Enable the usage of thread dependent state. If disabled, getting a thread dependent will returns the original thread that the called supplied as parameter.
   void thread_dependent_enable(lua_State* lstate, bool enable);

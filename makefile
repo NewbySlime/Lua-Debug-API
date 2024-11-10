@@ -252,7 +252,3 @@ proc_unit_test: _f_update_compiler
 	$(call link_compilation,*$(COMPILED_OBJECT_EXT) $(STATIC_DLIB_OUTPUT_FILE),$(UNIT_TEST_OUTPUT_FILE))
 
 	$(call delete_objects,*$(COMPILED_OBJECT_EXT))
-
-
-mem_test:
-	drmemory -logdir ./log -ignore_kernel -debug -dr_debug -- $(OUTPUT_FILE)

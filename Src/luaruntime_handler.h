@@ -23,7 +23,7 @@
 namespace lua{
   class I_thread_handle;
   class I_thread_control;
-  class I_thread_handle_store;
+  class I_thread_handle_reference;
   class thread_control;
 
   // [Thread-Safe]

@@ -241,7 +241,8 @@ typedef unsigned long Instruction;
 ** [CPP API def]
 ** macro to call before Lua closing the state.
 */
-#define lua_deinitstate(L) void luastate_util_deinitstate(lua_State*); luastate_util_deinitstate(L)
+#define lua_deinitstate_start(L) void luastate_util_deinitstate_start(lua_State*); luastate_util_deinitstate_start(L)
+#define lua_deinitstate_finish(L) void luastate_util_deinitstate_finish(lua_State*); luastate_util_deinitstate_finish(L)
 
 /*
 ** macro executed during Lua functions at points where the
