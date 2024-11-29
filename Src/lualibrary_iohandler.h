@@ -77,7 +77,7 @@ namespace lua::library{
       lua::table_var* _filein_def;
       lua::table_var* _fileerr_def;
 
-      lua::table_var* _obj_data = NULL;
+      lua::object_var* _obj_data = NULL;
 
       lua::error_var* _last_error = NULL;
 
@@ -87,6 +87,7 @@ namespace lua::library{
 #endif
 
       void _clear_error();
+      void _set_last_error(long long err_code, const I_variant* err_obj);
       void _set_last_error(long long err_code, const std::string& err_msg);
       void _copy_error_from(file_handler* file);
       // ignore copying when first data is not a nil value
@@ -98,24 +99,28 @@ namespace lua::library{
 
       void _fill_error_with_last(lua::I_vararr* res);
 
+      static void _initialize_function_vararr(const lua::api::core* lc, lua::I_vararr* args, lua::I_vararr* res);
+      static int _finish_function_vararr(const lua::api::core* lc, lua::I_vararr* args, lua::I_vararr* res);
+      static io_handler* _get_object_by_closure(const lua::api::core* lc);
+
     public:
       io_handler(const lua::api::core* lua_core, const constructor_param* param = NULL);
       ~io_handler();
 
       const lua::I_error_var* get_last_error() const override;
 
-      static void close(lua::I_object* obj, const lua::I_vararr* args, lua::I_vararr* res);
-      static void flush(lua::I_object* obj, const lua::I_vararr* args, lua::I_vararr* res);
-      static void open(lua::I_object* obj, const lua::I_vararr* args, lua::I_vararr* res);
-      // static void popen(lua::I_object* obj, const lua::I_vararr* args, lua::I_vararr* res);
-      static void input(lua::I_object* obj, const lua::I_vararr* args, lua::I_vararr* res);
-      static void output(lua::I_object* obj, const lua::I_vararr* args, lua::I_vararr* res);
-      static void error(lua::I_object* obj, const lua::I_vararr* args, lua::I_vararr* res);
-      static void lines(lua::I_object* obj, const lua::I_vararr* args, lua::I_vararr* res);
-      static void read(lua::I_object* obj, const lua::I_vararr* args, lua::I_vararr* res);
-      static void tmpfile(lua::I_object* obj, const lua::I_vararr* args, lua::I_vararr* res);
-      static void type(lua::I_object* obj, const lua::I_vararr* args, lua::I_vararr* res);
-      static void write(lua::I_object* obj, const lua::I_vararr* args, lua::I_vararr* res);
+      static int close(const lua::api::core* lc);
+      static int flush(const lua::api::core* lc);
+      static int open(const lua::api::core* lc);
+      // static int popen(const lua::api::core* lc);
+      static int input(const lua::api::core* lc);
+      static int output(const lua::api::core* lc);
+      static int error(const lua::api::core* lc);
+      static int lines(const lua::api::core* lc);
+      static int read(const lua::api::core* lc);
+      static int tmpfile(const lua::api::core* lc);
+      static int type(const lua::api::core* lc);
+      static int write(const lua::api::core* lc);
 
       // Closes output default file, will be ignored if the default output is a std output used by this IO handler.
       void close() override;
@@ -228,6 +233,8 @@ namespace lua::library{
 
       lua::error_var* _last_error = NULL;
 
+      std::string _file_path;
+
       // NOTE: Reason for using metadata (reference) table is to pass it as the upvalues of the callbacks of certain iterating functions.
       //  By using reference, whenever the actual object is deleted, the referenced table's data can be cleared. Hence preventing it to run using NULL object.
       //  - - -
@@ -236,7 +243,7 @@ namespace lua::library{
       // WARN: Do not use object_var for referencing as some functions will have data (upvalue) about a pointer of the object, which at the context, we don't know if the object has been deleted or not.
 
       lua::table_var* _object_metadata = NULL; // created on object initialization
-      lua::table_var* _object_table = NULL; // created on object pushed to Lua (see on_object_added)
+      lua::object_var* _object_table = NULL; // created on object pushed to Lua (see on_object_added)
 
 
       void _clear_error();
@@ -275,7 +282,7 @@ namespace lua::library{
 
       const lua::I_error_var* get_last_error() const override;
 
-      static bool check_object_validity(const I_table_var* tvar);
+      static bool check_object_validity(const lua::api::core* lc, const I_variant* var);
 
       static void close(lua::I_object* obj, const lua::I_vararr* args, lua::I_vararr* res);
       static void flush(lua::I_object* obj, const lua::I_vararr* args, lua::I_vararr* res);
@@ -312,6 +319,8 @@ namespace lua::library{
   
   struct io_handler_api_constructor_data{
     const lua::api::core* lua_core;
+
+    // Can be set to NULL.
     const I_io_handler::constructor_param* param = NULL;
   };
 

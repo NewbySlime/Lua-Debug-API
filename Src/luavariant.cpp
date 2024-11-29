@@ -144,7 +144,6 @@ string_var::string_var(const std::string& str){
 }
 
 string_var::string_var(const core* lc, int stack_idx){
-  stack_idx = lc->context->api_stack->absindex(lc->istate, stack_idx);
   _init_class();
   from_state(lc, stack_idx);
 }
@@ -227,7 +226,7 @@ int string_var::get_type() const{
 
 bool string_var::from_state(const core* lc, int stack_idx){
   stack_idx = lc->context->api_stack->absindex(lc->istate, stack_idx);
-  int _type = lc->context->api_varutil->get_special_type(lc->istate, stack_idx);
+  int _type = lc->context->api_value->type(lc->istate, stack_idx);
   switch(_type){
     break;
       case LUA_TSTRING:
@@ -388,7 +387,6 @@ number_var::number_var(const double& from){
 }
 
 number_var::number_var(const core* lc, int stack_idx){
-  stack_idx = lc->context->api_stack->absindex(lc->istate, stack_idx);
   from_state(lc, stack_idx);
 }
 
@@ -423,7 +421,7 @@ bool number_var::from_state(const core* lc, int stack_idx){
   stack_idx = lc->context->api_stack->absindex(lc->istate, stack_idx);
   _this_data = 0;
 
-  int _type = lc->context->api_varutil->get_special_type(lc->istate, stack_idx);
+  int _type = lc->context->api_value->type(lc->istate, stack_idx);
   if(_type != get_type()){
     _logger->print_error(format_str_mem(__dm, "Mismatched type when converting at stack (%d). (%s-%s)\n",
       stack_idx,
@@ -572,7 +570,6 @@ bool_var::bool_var(const bool& from){
 }
 
 bool_var::bool_var(const core* lc, int stack_idx){
-  stack_idx = lc->context->api_stack->absindex(lc->istate, stack_idx);
   from_state(lc, stack_idx);
 }
 
@@ -604,7 +601,7 @@ bool bool_var::from_state(const core* lc, int stack_idx){
   stack_idx = lc->context->api_stack->absindex(lc->istate, stack_idx);
   _this_data = true;
 
-  int _type = lc->context->api_varutil->get_special_type(lc->istate, stack_idx);
+  int _type = lc->context->api_value->type(lc->istate, stack_idx);
   if(_type != get_type()){
     _logger->print_error(format_str_mem(__dm, "Mismatched type when converting at stack (%d). (%s-%s)\n",
       stack_idx,
@@ -737,9 +734,18 @@ table_var::table_var(const I_table_var* var){
 
 // Create a reference
 table_var::table_var(const core* lc, int stack_idx){
-  stack_idx = lc->context->api_stack->absindex(lc->istate, stack_idx);
   _init_class();
   from_state(lc, stack_idx);
+}
+
+table_var::table_var(const object_var& var){
+  _init_class();
+  from_object(&var);
+}
+
+table_var::table_var(const I_object_var* var){
+  _init_class();
+  from_object(var);
 }
 
 
@@ -856,7 +862,7 @@ void table_var::_fs_iter_cb(const lua::api::core* lc, int key_stack, int val_sta
 
   table_var* _this = (table_var*)cb_data;
 
-  int _type = lc->context->api_value->type(lc->istate, key_stack);
+  int _type = lc->context->api_varutil->get_special_type(lc->istate, key_stack);
   I_variant* _key_value;
   switch(_type){
     break;
@@ -1130,7 +1136,7 @@ bool table_var::from_state(const core* lc, int stack_idx){
   _clear_table();
 
   // use the core in the argument first
-  int _type = lc->context->api_varutil->get_special_type(lc->istate, stack_idx);
+  int _type = lc->context->api_value->type(lc->istate, stack_idx);
   if(_type != get_type()){
     _logger->print_error(format_str_mem(__dm, "Mismatched type when converting at stack (%d). (%s-%s)\n",
       stack_idx,
@@ -1162,7 +1168,7 @@ bool table_var::from_state_copy(const core* lc, int stack_idx){
   _table_data = __dm->new_class_dbg<std::map<comparison_variant, variant*>>(DYNAMIC_MANAGEMENT_DEBUG_DATA);
 
   // never copy core to itself, as this does not use referencing
-  int _type = lc->context->api_varutil->get_special_type(lc->istate, stack_idx);
+  int _type = lc->context->api_value->type(lc->istate, stack_idx);
   if(_type != get_type()){
     _logger->print_error(format_str_mem(__dm, "Mismatched type when converting at stack (%d). (%s-%s)\n",
       stack_idx,
@@ -1202,6 +1208,16 @@ bool table_var::from_state_copy(const core* lc, int stack_idx){
   }
 
   return true;
+}
+
+bool table_var::from_object(const I_object_var* obj){
+  const core* _lc = obj->get_lua_core();
+
+  obj->push_to_stack(_lc);
+  bool _res = from_state(_lc, -1);
+  _lc->context->api_stack->pop(_lc->istate, 1);
+
+  return _res;
 }
 
 void table_var::push_to_stack(const core* lc) const{
@@ -1351,7 +1367,6 @@ lightuser_var::lightuser_var(void* pointer){
 }
 
 lightuser_var::lightuser_var(const core* lc, int stack_idx){
-  stack_idx = lc->context->api_stack->absindex(lc->istate, stack_idx);
   from_state(lc, stack_idx);
 }
 
@@ -1385,7 +1400,7 @@ int lightuser_var::get_type() const{
 
 bool lightuser_var::from_state(const core* lc, int stack_idx){
   stack_idx = lc->context->api_stack->absindex(lc->istate, stack_idx);
-  int _type = lc->context->api_varutil->get_special_type(lc->istate, stack_idx);
+  int _type = lc->context->api_value->type(lc->istate, stack_idx);
   if(_type != get_type()){
     _logger->print_error(format_str_mem(__dm, "Mismatched type when converting at stack (%d). (%s-%s)\n",
       stack_idx,
@@ -1486,7 +1501,6 @@ function_var::function_var(const void* chunk_buf, size_t len, const char* chunk_
 }
 
 function_var::function_var(const core* lc, int stack_idx){
-  stack_idx = lc->context->api_stack->absindex(lc->istate, stack_idx);
   _init_class();
   from_state(lc, stack_idx);
 }
@@ -1649,7 +1663,7 @@ bool function_var::from_state(const core* lc, int stack_idx){
   stack_idx = lc->context->api_stack->absindex(lc->istate, stack_idx);
   _clear_function_data();
 
-  int _type = lc->context->api_varutil->get_special_type(lc->istate, stack_idx);
+  int _type = lc->context->api_value->type(lc->istate, stack_idx);
   if(_type != get_type()){
     _logger->print_error(format_str_mem(__dm, "Mismatched type when converting at stack (%d). (%s-%s)\n",
       stack_idx,
@@ -1677,7 +1691,7 @@ bool function_var::from_state_copy(const core* lc, int stack_idx){
   stack_idx = lc->context->api_stack->absindex(lc->istate, stack_idx);
   _clear_function_data();
 
-  int _type = lc->context->api_varutil->get_special_type(lc->istate, stack_idx);
+  int _type = lc->context->api_value->type(lc->istate, stack_idx);
   if(_type != get_type()){
     _logger->print_error(format_str_mem(__dm, "Mismatched type when converting at stack (%d). (%s-%s)\n",
       stack_idx,
@@ -1960,7 +1974,7 @@ int function_var::run_function(const core* lc, const I_vararr* args, I_vararr* r
 
     results->clear();
     for(int i = 0; i < _delta_stack; i++){
-      int _idx_stack = -(i+1);
+      int _idx_stack = -(_delta_stack-i);
 
       I_variant* _argv = lc->context->api_varutil->to_variant(lc->istate, _idx_stack);
       results->append_var(_argv);
@@ -2012,7 +2026,6 @@ error_var::error_var(const I_variant* data, long long code){
 }
 
 error_var::error_var(const core* lc, int stack_idx){
-  stack_idx = lc->context->api_stack->absindex(lc->istate, stack_idx);
   from_state(lc, stack_idx);
 }
 
@@ -2107,7 +2120,6 @@ object_var::object_var(const core* lc, I_object* obj){
 }
 
 object_var::object_var(const core* lc, int stack_idx){
-  stack_idx = lc->context->api_stack->absindex(lc->istate, stack_idx);
   from_state(lc, stack_idx);
 }
 
@@ -2178,6 +2190,8 @@ bool object_var::from_state(const core* lc, int stack_idx){
   _lc = *lc;
   _obj = _test_obj;
   _oref = __dm->new_class_dbg<value_ref>(DYNAMIC_MANAGEMENT_DEBUG_DATA, &_lc, OBJECT_REFERENCE_INTERNAL_DATA, _get_reference_key(_obj).c_str());
+  if(!_oref->reference_initiated())
+    _oref->set_value(stack_idx);
 
   return true;
 }

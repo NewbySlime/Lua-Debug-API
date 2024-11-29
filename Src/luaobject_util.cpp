@@ -206,7 +206,7 @@ void lua::object::push_object_to_table(lua_State* state, I_object* object, int t
   lua_rawset(state, -3);
 
   // set object's metatable
-  lua_setmetatable(state, -2);
+  lua_setmetatable(state, table_idx);
 
   // push functions
   for(int i = 0; i < object->get_function_count(); i++){

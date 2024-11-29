@@ -1,5 +1,6 @@
 #include "dllutil.h"
 #include "error_util.h"
+#include "luaapi_object_util.h"
 #include "luaapi_util.h"
 #include "luaapi_variant_util.h"
 #include "lualibrary_iohandler.h"
@@ -94,23 +95,14 @@ static void _deinitialize_file_handler_static_vars(){
 // MARK: io_handler definition
 
 static const fdata _io_handler_fdata[] = {
-  fdata("close", io_handler::close),
-  fdata("flush", io_handler::flush),
-  fdata("open", io_handler::open),
-  fdata("input", io_handler::input),
-  fdata("output", io_handler::output),
-  fdata("error", io_handler::error),
-  fdata("lines", io_handler::lines),
-  fdata("read", io_handler::read),
-  fdata("tmpfile", io_handler::tmpfile),
-  fdata("type", io_handler::type),
-  fdata("write", io_handler::write),
   fdata(NULL, NULL) // array closing
 };
 
 
 #define IO_HANDLER_REPLACE_DEF_FILE(def_file) \
-  io_handler* _this = dynamic_cast<io_handler*>(obj); \
+  vararr args, res; \
+    _initialize_function_vararr(lc, &args, &res); \
+  io_handler* _this = _get_object_by_closure(lc); \
   _this->lock_object(); \
   _this->_clear_error(); \
    \
@@ -118,24 +110,25 @@ static const fdata _io_handler_fdata[] = {
    \
   /* Getting arguments */ \
   {const I_variant* _check_var; \
-    if(args->get_var_count() < 1){ /* push default input file when argument is empty */ \
-      res->append_var(_this->def_file); \
-      return; \
+    if(args.get_var_count() < 1){ /* push default input file when argument is empty */ \
+      res.append_var(_this->def_file); \
+      return _finish_function_vararr(lc, &args, &res); \
     } \
      \
-    _check_var = args->get_var(0); \
+    _check_var = args.get_var(0); \
     switch(_check_var->get_type()){ \
       /* set default input file from table data */ \
-      break; case I_table_var::get_static_lua_type():{ \
-        const I_table_var* _itvar = dynamic_cast<const I_table_var*>(_check_var); \
-        if(!file_handler::check_object_validity(_itvar)){ \
+      break; \
+      case I_object_var::get_static_lua_type(): \
+      case I_table_var::get_static_lua_type():{ \
+        if(!file_handler::check_object_validity(lc, _check_var)){ \
           _this->_set_last_error(ERROR_BAD_ARGUMENTS, "Argument #1: File handle object is invalid."); \
           goto on_error; \
         } \
          \
-        _itvar->push_to_stack(&_this->_lc); \
+        _check_var->push_to_stack(&_this->_lc); \
         _this->def_file->from_state(&_this->_lc, -1); \
-        _this->_lc.context->api_stack->pop(&_this->_lc, 1); \
+        _this->_lc.context->api_stack->pop(_this->_lc.istate, 1); \
       } \
        \
       /* set default input file from file name */ \
@@ -152,7 +145,7 @@ static const fdata _io_handler_fdata[] = {
         object_var _tmp_var(&_this->_lc, _tmp_obj); \
         _tmp_var.push_to_stack(&_this->_lc); \
         _this->def_file->from_state(&_this->_lc, -1); \
-        _this->_lc.context->api_stack->pop(&_this->_lc, 1); \
+        _this->_lc.context->api_stack->pop(_this->_lc.istate, 1); \
       } \
        \
       break; default:{ \
@@ -165,39 +158,49 @@ static const fdata _io_handler_fdata[] = {
 } /* enclosure closing */ \
    \
   _this->unlock_object(); \
-  return; \
+  return _finish_function_vararr(lc, &args, &res); \
    \
    \
   /* ERROR GOTOs */ \
    \
   on_error:{ \
-    res->clear(); \
-    res->append_var(_this->get_last_error()); \
     _this->unlock_object(); \
+    _this->get_last_error()->push_to_stack(lc); \
+    lc->context->api_util->error(lc->istate); \
   } \
+   \
+  return 0; /* suppress error, error function will throw an error */
 
 #define IO_HANDLER_REDIRECT_FUNCTION(table_obj, fname) \
-  io_handler* _this = dynamic_cast<io_handler*>(obj); \
-  bool _error_occur = false; \
+  vararr args, res; \
+    _initialize_function_vararr(lc, &args, &res); \
+  io_handler* _this = _get_object_by_closure(lc); \
   _this->lock_object(); \
   _this->_clear_error(); \
    \
+  vararr _fargs; \
+    _fargs.append_var(table_obj); \
+    _fargs.append(&args); \
   string_var _fname = fname; \
   I_function_var* _fvar = dynamic_cast<I_function_var*>(table_obj->get_value(_fname)); \
   if(!_fvar){ \
     _this->_set_last_error(-1, format_str("Cannot run an nil function (%s)", _fname.get_string()).c_str()); \
-    _error_occur = true; \
     goto skip_to_return; \
   } \
-  _fvar->run_function(&_this->_lc, args, res); \
-  _this->_copy_error_from(res); \
+  int _errcode = _fvar->run_function(&_this->_lc, &_fargs, &res); \
+  if(_this->_has_error(&res)) \
+    _this->_copy_error_from(&res); \
+  else if(_errcode != LUA_OK) \
+    _this->_set_last_error(_errcode, res.get_var(0)); \
   /* delete result from table_var */ \
   table_obj->free_variant(_fvar); \
   skip_to_return:{}\
   _this->unlock_object(); \
-  if(_error_occur){ \
-    _this->_fill_error_with_last(res); \
+  if(_this->get_last_error()){ \
+    _this->get_last_error()->push_to_stack(lc); \
+    lc->context->api_util->error(lc->istate); \
   } \
+  return _finish_function_vararr(lc, &args, &res);
   
 #define IO_HANDLER_SET_FILE(file, target_table) \
   bool _result = true; \
@@ -214,7 +217,7 @@ static const fdata _io_handler_fdata[] = {
   object_var _tmpobj(&_lc, file); \
   _tmpobj.push_to_stack(&_lc); \
   target_table->from_state(&_lc, -1); \
-  _lc.context->api_stack->pop(&_lc, 1); \
+  _lc.context->api_stack->pop(_lc.istate, 1); \
 } /* enclosure closing */ \
   skip_to_return:{} \
   unlock_object(); \
@@ -282,12 +285,12 @@ io_handler::~io_handler(){
     _obj_data = NULL;
   }
 
+  flush();
+  close();
+
   __dm->delete_class_dbg(_stdout_object, DYNAMIC_MANAGEMENT_DEBUG_DATA);
   __dm->delete_class_dbg(_stdin_object, DYNAMIC_MANAGEMENT_DEBUG_DATA);
   __dm->delete_class_dbg(_stderr_object, DYNAMIC_MANAGEMENT_DEBUG_DATA);
-
-  flush();
-  close();
 
   __dm->delete_class_dbg(_fileout_def, DYNAMIC_MANAGEMENT_DEBUG_DATA);
   __dm->delete_class_dbg(_filein_def, DYNAMIC_MANAGEMENT_DEBUG_DATA);
@@ -306,6 +309,11 @@ void io_handler::_clear_error(){
     __dm->delete_class_dbg(_last_error, DYNAMIC_MANAGEMENT_DEBUG_DATA);
     _last_error = NULL;
   }
+}
+
+void io_handler::_set_last_error(long long err_code, const I_variant* err_obj){
+  string_store _str; err_obj->to_string(&_str);
+  _set_last_error(err_code, _str.data);
 }
 
 void io_handler::_set_last_error(long long err_code, const std::string& err_msg){
@@ -355,46 +363,80 @@ void io_handler::_fill_error_with_last(I_vararr* res){
 }
 
 
+void io_handler::_initialize_function_vararr(const lua::api::core* lc, I_vararr* args, I_vararr* res){
+  args->clear();
+  res->clear();
+
+  int _toplength = lc->context->api_stack->gettop(lc->istate);
+  for(int i = 0; i < _toplength; i++){
+    I_variant* _arg = lc->context->api_varutil->to_variant(lc->istate, i+1);
+    args->append_var(_arg);
+    lc->context->api_varutil->delete_variant(_arg);
+  }
+}
+
+int io_handler::_finish_function_vararr(const lua::api::core* lc, I_vararr* args, I_vararr* res){
+  for(int i = 0; i < res->get_var_count(); i++)
+    res->get_var(i)->push_to_stack(lc);
+
+  return res->get_var_count();
+}
+
+io_handler* io_handler::_get_object_by_closure(const lua::api::core* lc){
+  lc->context->api_stack->pushvalue(lc->istate, LUA_FUNCVAR_GET_UPVALUE(1));
+  I_object* _obj = lc->context->api_objutil->get_object_from_table(lc->istate, -1);
+  lc->context->api_stack->pop(lc->istate, 1);
+
+  return dynamic_cast<io_handler*>(_obj);
+}
+
+
 const I_error_var* io_handler::get_last_error() const{
   return _last_error;
 }
 
 
-void io_handler::close(I_object* obj, const I_vararr* args, I_vararr* res){
-  io_handler* _this = dynamic_cast<io_handler*>(obj);
+int io_handler::close(const lua::api::core* lc){
+  vararr args, res;
+    _initialize_function_vararr(lc, &args, &res);
+
+  io_handler* _this = _get_object_by_closure(lc);
   _this->lock_object();
   _this->_clear_error();
 
 { // enclosure for using goto
-
   {const I_variant* _check_var;
-    if(args->get_var_count() >= 1){ 
-      _check_var = args->get_var(0);
+    if(args.get_var_count() >= 1){ 
+      _check_var = args.get_var(0);
       switch(_check_var->get_type()){
-        break; case I_table_var::get_static_lua_type():{
-          const I_table_var* _itvar = dynamic_cast<const I_table_var*>(_check_var);
-          if(!file_handler::check_object_validity(_itvar)){
+        break;
+        case I_object_var::get_static_lua_type():
+        case I_table_var::get_static_lua_type():{
+          if(!file_handler::check_object_validity(lc, _check_var)){
             _this->_set_last_error(ERROR_BAD_ARGUMENTS, "Argument #1: Not a file handle; invalid object.");
             goto on_error;
           }
 
-          string_var _strkey = "close";
-          // no way that it could fail after checking its validity
-          const I_function_var* _fvar = dynamic_cast<const I_function_var*>(_itvar->get_value(&_strkey));
+          const char* _strkey = "close";
 
-          vararr _args;
+          lc->context->api_value->pushstring(lc->istate, _strkey);
+          lc->context->api_value->gettable(lc->istate, 1);
+          
+          // no way that it could fail after checking its validity
+          function_var _fvar(lc, -1);
+          lc->context->api_stack->pop(lc->istate, 1);
+
+          vararr _args;{
+            _args.append_var(_check_var);
+          }
           vararr _res;
 
-          _fvar->run_function(_itvar->get_lua_core(), &_args, &_res);
+          _fvar.run_function(lc, &_args, &_res);
+          res.clear();
+          res.append(&_res);
 
-          res->clear();
-          res->append(&_res);
-
-          // delete result from table_var
-          _itvar->free_variant(_fvar);
-
-          if(_this->_has_error(res))
-            _this->_copy_error_from(res);
+          if(_this->_has_error(&_res))
+            _this->_copy_error_from(&_res);
         }
 
         break; default:{
@@ -412,32 +454,42 @@ void io_handler::close(I_object* obj, const I_vararr* args, I_vararr* res){
 }
 
   _this->unlock_object();
-  return;
+  return _finish_function_vararr(lc, &args, &res);
 
   on_error:{
-    res->clear();
-    _this->_fill_error_with_last(res);
+    res.clear();
+    _this->_fill_error_with_last(&res);
+
     _this->unlock_object();
+    return _finish_function_vararr(lc, &args, &res);
   }
 }
 
-void io_handler::flush(I_object* obj, const I_vararr* args, I_vararr* res){
-  io_handler* _this = dynamic_cast<io_handler*>(obj);
+int io_handler::flush(const lua::api::core* lc){
+  vararr args, res;
+    _initialize_function_vararr(lc, &args, &res);
+
+  io_handler* _this = _get_object_by_closure(lc);
   _this->lock_object();
   _this->_clear_error();
 
   _this->flush();
 
   if(_this->get_last_error()){
-    res->clear();
-    _this->_fill_error_with_last(res);
+    res.clear();
+    _this->_fill_error_with_last(&res);
   }
 
   _this->unlock_object();
+
+  return _finish_function_vararr(lc, &args, &res);
 }
 
-void io_handler::open(I_object* obj, const I_vararr* args, I_vararr* res){
-  io_handler* _this = dynamic_cast<io_handler*>(obj);
+int io_handler::open(const lua::api::core* lc){
+  vararr args, res;
+    _initialize_function_vararr(lc, &args, &res);
+
+  io_handler* _this = _get_object_by_closure(lc);
   _this->lock_object();
   _this->_clear_error();
 
@@ -448,13 +500,13 @@ void io_handler::open(I_object* obj, const I_vararr* args, I_vararr* res){
 
   // Getting arguments
   {const I_variant* _check_var;
-    if(args->get_var_count() < 1){
+    if(args.get_var_count() < 1){
       _this->_set_last_error(ERROR_BAD_ARGUMENTS, "Not enough argument.");
       goto on_error;
     }
 
     // get file name
-    _check_var = args->get_var(0);
+    _check_var = args.get_var(0);
     if(_check_var->get_type() != I_string_var::get_static_lua_type()){
       _this->_set_last_error(ERROR_BAD_ARGUMENTS, "Argument #1: Not a string.");
       goto on_error;
@@ -463,10 +515,10 @@ void io_handler::open(I_object* obj, const I_vararr* args, I_vararr* res){
     _fname_str = dynamic_cast<const I_string_var*>(_check_var)->get_string();
     
     // get mode
-    if(args->get_var_count() < 2)
+    if(args.get_var_count() < 2)
       goto skip_argument_parse;
 
-    _check_var = args->get_var(1);
+    _check_var = args.get_var(1);
     if(_check_var->get_type() != I_string_var::get_static_lua_type()){
       _this->_set_last_error(ERROR_BAD_ARGUMENTS, "Argument #2: Not a string.");
       goto on_error;
@@ -511,35 +563,40 @@ void io_handler::open(I_object* obj, const I_vararr* args, I_vararr* res){
   }
 
   object_var _tmpobj(&_this->_lc, _file);
-  res->append_var(&_tmpobj);
+  res.append_var(&_tmpobj);
 
 } // enclosure closing
 
   _this->unlock_object();
-  return;
+  return _finish_function_vararr(lc, &args, &res);
 
 
   on_error:{
-    res->clear();
-    _this->_fill_error_with_last(res);
+    res.clear();
+    _this->_fill_error_with_last(&res);
+
     _this->unlock_object();
+    return _finish_function_vararr(lc, &args, &res);
   }
 }
 
-void io_handler::input(I_object* obj, const I_vararr* args, I_vararr* res){
+int io_handler::input(const lua::api::core* lc){
   IO_HANDLER_REPLACE_DEF_FILE(_filein_def)
 } 
 
-void io_handler::output(I_object* obj, const I_vararr* args, I_vararr* res){
+int io_handler::output(const lua::api::core* lc){
   IO_HANDLER_REPLACE_DEF_FILE(_fileout_def)
 }
 
-void io_handler::error(I_object* obj, const I_vararr* args, I_vararr* res){
+int io_handler::error(const lua::api::core* lc){
   IO_HANDLER_REPLACE_DEF_FILE(_fileerr_def)
 }
 
-void io_handler::lines(I_object* obj, const I_vararr* args, I_vararr* res){
-  io_handler* _this = dynamic_cast<io_handler*>(obj);
+int io_handler::lines(const lua::api::core* lc){
+  vararr args, res;
+    _initialize_function_vararr(lc, &args, &res);
+
+  io_handler* _this = _get_object_by_closure(lc);
   _this->lock_object();
   _this->_clear_error();
 
@@ -549,12 +606,14 @@ void io_handler::lines(I_object* obj, const I_vararr* args, I_vararr* res){
 
   // Getting arguments
   {const I_variant* _check_var;
-    if(args->get_var_count() < 1){ // push iterator function from default input
+    if(args.get_var_count() < 1){ // push iterator function from default input
       _target_obj = *_this->_filein_def;
+      _farg.append_var(&_target_obj);
+
       goto skip_parse_argument;
     }
 
-    _check_var = args->get_var(0);
+    _check_var = args.get_var(0);
     if(_check_var->get_type() == I_string_var::get_static_lua_type()){
       const I_string_var* _file_name = dynamic_cast<const I_string_var*>(_check_var);
 
@@ -571,14 +630,17 @@ void io_handler::lines(I_object* obj, const I_vararr* args, I_vararr* res){
       _tmp_obj.push_to_stack(&_this->_lc);
       _target_obj.from_state(&_this->_lc, -1);
       _this->_lc.context->api_stack->pop(_this->_lc.istate, 1);
+
     }
     else{
       _this->_set_last_error(ERROR_BAD_ARGUMENTS, "Argument #1: Not a file name.");
       goto on_error;
     }
 
-    for(int i = 1; i < args->get_var_count(); i++)
-      _farg.append_var(args->get_var(i));
+    // invoke to self
+    _farg.append_var(&_target_obj);
+    for(int i = 1; i < args.get_var_count(); i++)
+      _farg.append_var(args.get_var(i));
   }
 
   skip_parse_argument:{}
@@ -586,17 +648,17 @@ void io_handler::lines(I_object* obj, const I_vararr* args, I_vararr* res){
   string_var _fname = "lines";
   // no way that the function could fail
   I_function_var* _func = dynamic_cast<I_function_var*>(_target_obj.get_value(_fname));
-  res->clear();
+  res.clear();
 
-  int _errcode = _func->run_function(_target_obj.get_lua_core(), &_farg, res);
+  int _errcode = _func->run_function(_target_obj.get_lua_core(), &_farg, &res);
   
   // delete result from table_var
   _target_obj.free_variant(_func);
 
   if(_errcode != LUA_OK){
     string_store _errmsg;
-    if(res->get_var_count() >= 1)
-      res->get_var(0)->to_string(&_errmsg);
+    if(res.get_var_count() >= 1)
+      res.get_var(0)->to_string(&_errmsg);
 
     _this->_set_last_error(_errcode, _errmsg.data);
   }
@@ -604,22 +666,27 @@ void io_handler::lines(I_object* obj, const I_vararr* args, I_vararr* res){
 } // enclosure closing
 
   _this->unlock_object();
-  return;
+  return _finish_function_vararr(lc, &args, &res);
 
 
   on_error:{
-    res->clear();
-    res->append_var(_this->get_last_error());
     _this->unlock_object();
+    _this->get_last_error()->push_to_stack(lc);
+    lc->context->api_util->error(lc->istate);
   }
+
+  return 0; // suppress warning, error function will throw an error
 }
 
-void io_handler::read(I_object* obj, const I_vararr* args, I_vararr* res){
+int io_handler::read(const lua::api::core* lc){
   IO_HANDLER_REDIRECT_FUNCTION(_this->_filein_def, "read")
 }
 
-void io_handler::tmpfile(I_object* obj, const I_vararr* args, I_vararr* res){
-  io_handler* _this = dynamic_cast<io_handler*>(obj);
+int io_handler::tmpfile(const lua::api::core* lc){
+  vararr args, res;
+    _initialize_function_vararr(lc, &args, &res);
+
+  io_handler* _this = _get_object_by_closure(lc);
   _this->lock_object();
   _this->_clear_error();
 
@@ -632,73 +699,81 @@ void io_handler::tmpfile(I_object* obj, const I_vararr* args, I_vararr* res){
   }
 
   object_var _tmpobj(&_this->_lc, _file);
-  res->append_var(&_tmpobj);
+  res.append_var(&_tmpobj);
 } // enclosure closing
 
   _this->unlock_object();
-  return;
+  return _finish_function_vararr(lc, &args, &res);
 
 
   on_error:{
-    res->clear();
-    _this->_fill_error_with_last(res);
+    res.clear();
+    _this->_fill_error_with_last(&res);
+    
     _this->unlock_object();
+    return _finish_function_vararr(lc, &args, &res);
   }
 }
 
-void io_handler::type(I_object* obj, const I_vararr* args, I_vararr* res){
-  io_handler* _this = dynamic_cast<io_handler*>(obj);
+int io_handler::type(const lua::api::core* lc){
+  vararr args, res;
+    _initialize_function_vararr(lc, &args, &res);
+
+  io_handler* _this = _get_object_by_closure(lc);
   _this->lock_object();
   _this->_clear_error();
 
 { // enclosure for using goto
-  if(args->get_var_count() < 1)
+  if(args.get_var_count() < 1)
     goto on_invalid;
 
-  const I_variant* _check_var = args->get_var(0);
-  if(_check_var->get_type() != I_table_var::get_static_lua_type())
-    goto on_invalid;
-
-  const I_table_var* _tvar = dynamic_cast<const I_table_var*>(_check_var);
-  if(!file_handler::check_object_validity(_tvar))
+  const I_variant* _check_var = args.get_var(0);
+  if(!file_handler::check_object_validity(lc, _check_var))
     goto on_invalid;
 
 { // enclosure for scoping
   const string_var _case_closed = "closed file";
   const string_var _case_normal = "file";
 
-  string_var _fname = "read";
+  const char* _fname = "read";
+
+  lc->context->api_value->pushstring(lc->istate, _fname);
+  lc->context->api_value->gettable(lc->istate, 1);
+
   // already checked for validity
-  const I_function_var* _fvar = dynamic_cast<const I_function_var*>(_tvar->get_value(&_fname));
+  function_var _fvar(lc, -1);
+  lc->context->api_stack->pop(lc->istate, 1);
 
   vararr _farg;{
+    _farg.append_var(_check_var);
     number_var _num = 0.f; _farg.append_var(&_num);
   }
   vararr _fres;
 
-  _fvar->run_function(&_this->_lc, &_farg, &_fres);
-  if(_this->_has_error(&_fres))
-    res->append_var(&_case_closed);
+  int _errcode = _fvar.run_function(&_this->_lc, &_farg, &_fres);
+  if(_errcode != LUA_OK || _this->_has_error(&_fres))
+    res.append_var(&_case_closed);
   else
-    res->append_var(&_case_normal);
+    res.append_var(&_case_normal);
 
-  _tvar->get_lua_core()->context->api_varutil->delete_variant(_fvar);
 } // enclosure closing
 
 } // enclosure closing
 
   _this->unlock_object();
-  return;
+  return _finish_function_vararr(lc, &args, &res);
 
   on_invalid:{
-    res->clear();
+    res.clear();
     nil_var _nvar;
-    res->append_var(&_nvar);
+    res.append_var(&_nvar);
+
     _this->unlock_object();
+    return _finish_function_vararr(lc, &args, &res);
   }
 }
 
-void io_handler::write(I_object* obj, const I_vararr* args, I_vararr* res){
+int io_handler::write(const lua::api::core* lc){
   IO_HANDLER_REDIRECT_FUNCTION(_this->_fileout_def, "write")
 }
 
@@ -969,16 +1044,44 @@ I_debuggable_object* io_handler::as_debug_object(){
 
 void io_handler::on_object_added(const core* lc){
   lock_object();
-  _obj_data = __dm->new_class_dbg<table_var>(DYNAMIC_MANAGEMENT_DEBUG_DATA, lc, -1);
-  
-  string_var _str = IO_HANDLER_STDOUT_VARNAME;
-  _obj_data->set_value((I_variant*)&_str, (I_variant*)_stdout_object); // directly casting to not make the compiler upset
+  _obj_data = __dm->new_class_dbg<object_var>(DYNAMIC_MANAGEMENT_DEBUG_DATA, lc, -1);
 
-  _str = IO_HANDLER_STDIN_VARNAME;
-  _obj_data->set_value((I_variant*)&_str, (I_variant*)_stdin_object);
+  // set stdout
+  lc->context->api_value->pushstring(lc->istate, IO_HANDLER_STDOUT_VARNAME);
+  _stdout_object->push_to_stack(lc);
+  lc->context->api_value->settable(lc->istate, -3);
 
-  _str = IO_HANDLER_STDERR_VARNAME;
-  _obj_data->set_value((I_variant*)&_str, (I_variant*)_stderr_object);
+  // set stdin
+  lc->context->api_value->pushstring(lc->istate, IO_HANDLER_STDIN_VARNAME);
+  _stdin_object->push_to_stack(lc);
+  lc->context->api_value->settable(lc->istate, -3);
+
+  // set stderr
+  lc->context->api_value->pushstring(lc->istate, IO_HANDLER_STDERR_VARNAME);
+  _stderr_object->push_to_stack(lc);
+  lc->context->api_value->settable(lc->istate, -3);
+
+  vararr _closure_data;
+    _closure_data.append_var(_obj_data);
+
+#define IOH_ON_OBJECT_ADDED_PUSH_FUNCTION(func_name) \
+  {function_var _func_var(io_handler::func_name, &_closure_data); \
+    lc->context->api_value->pushstring(lc->istate, #func_name); \
+    _func_var.push_to_stack(lc); \
+    lc->context->api_value->settable(lc->istate, -3); \
+  }
+
+  IOH_ON_OBJECT_ADDED_PUSH_FUNCTION(close)
+  IOH_ON_OBJECT_ADDED_PUSH_FUNCTION(flush)
+  IOH_ON_OBJECT_ADDED_PUSH_FUNCTION(open)
+  IOH_ON_OBJECT_ADDED_PUSH_FUNCTION(input)
+  IOH_ON_OBJECT_ADDED_PUSH_FUNCTION(output)
+  IOH_ON_OBJECT_ADDED_PUSH_FUNCTION(error)
+  IOH_ON_OBJECT_ADDED_PUSH_FUNCTION(lines)
+  IOH_ON_OBJECT_ADDED_PUSH_FUNCTION(read)
+  IOH_ON_OBJECT_ADDED_PUSH_FUNCTION(tmpfile)
+  IOH_ON_OBJECT_ADDED_PUSH_FUNCTION(type)
+  IOH_ON_OBJECT_ADDED_PUSH_FUNCTION(write)
 
   // Reset the lua_core to make sure to use this compilation context.
   _lc = *lc;
@@ -1040,25 +1143,23 @@ file_handler::file_handler(const core* lc, const std::string& path, int op): fun
 
   // op code checks
   if(op & open_temporary)
-    op = open_write | open_special;
+    op |= open_write | open_special;
 
   if(op & open_append)
-    op = op | open_preserve;
+    op |= open_preserve;
 
   // adjust io behaviour
   if(op & open_special)
-    _access_type = GENERIC_ALL;
+    _access_type = GENERIC_WRITE;
   else
-    _access_type = (op & open_write)? GENERIC_WRITE: GENERIC_READ;
+    _access_type = (op & (open_write | open_append))? GENERIC_WRITE: GENERIC_READ;
 
   // adjust opening behaviour
   _open_type = (op & open_write)? OPEN_ALWAYS: OPEN_EXISTING;
 
   // if temporary, ignore path argument, create a new file with time as its name
-  if(op & open_temporary){
+  if(op & open_temporary)
     _actual_path = create_random_name() + TEMPORARY_FILE_EXT;
-    _flags |= FILE_ATTRIBUTE_TEMPORARY;
-  }
 
   HANDLE _file = CreateFileA(
     _actual_path.c_str(),
@@ -1076,10 +1177,12 @@ file_handler::file_handler(const core* lc, const std::string& path, int op): fun
     return;
   }
 
-  // check if preserve
-  if(!(op & open_preserve)){
+  // check if not preserve
+  if(op & open_write && !(op & open_preserve)){
     SetFilePointer(_file, 0, NULL, FILE_BEGIN);
     SetEndOfFile(_file);
+
+    FlushFileBuffers(_file);
   }
 
   // check if append
@@ -1091,6 +1194,8 @@ file_handler::file_handler(const core* lc, const std::string& path, int op): fun
   _hfile = _file;
   _is_pipe_handle = false;
   _own_handle = true;
+
+  _file_path = _actual_path;
 #endif
 
   _initiate_reference();
@@ -1201,18 +1306,13 @@ void file_handler::_skip_str(bool(*filter_cb)(char ch)){
 
   char _tmpc;
   while(!end_of_file_reached()){
-    // don't use _seek, pipe does not have seek feature
-    // _seek(seek_current, 1);
-
 #if (_WIN64) || (_WIN32)
-    bool _success = PeekNamedPipe(_hfile, &_tmpc, sizeof(char), NULL, NULL, NULL);
-    if(!_success)
-      goto on_windows_error;
+    _tmpc = peek();
 
     if(!filter_cb(_tmpc))
       break;
 
-    _success = ReadFile(_hfile, &_tmpc, sizeof(char), NULL, NULL);
+    bool _success = ReadFile(_hfile, &_tmpc, sizeof(char), NULL, NULL);
     if(!_success)
       goto on_windows_error;
 #endif
@@ -1231,11 +1331,16 @@ void file_handler::_skip_str(bool(*filter_cb)(char ch)){
 }
 
 int file_handler::_read_str(char* buffer, size_t buflen, bool(*filter_cb)(char ch)){
-  if(end_of_file_reached())
-    return -1;
-
   if(already_closed()){
     _set_last_error(ERROR_HANDLE_EOF, "File already closed.");
+    return -1;
+  }
+
+  // returns when eof, and close the file if the open_mode has open_automatic_close flag
+  if(end_of_file_reached()){
+    if(_op_code & open_automatic_close)
+      close();
+
     return -1;
   }
 
@@ -1244,21 +1349,22 @@ int file_handler::_read_str(char* buffer, size_t buflen, bool(*filter_cb)(char c
     return -1;
   }
 
+  // for dummy read
+  if(!buffer || !buflen)
+    return 0;
+
   size_t _cur_idx = 0;
   char _tmpc;
   while(!end_of_file_reached() && _cur_idx < buflen){
-    // don't use _seek, pipe does not have seek feature
-    // _seek(seek_current, 1);
-
 #if (_WIN64) || (_WIN32)
-    bool _success = PeekNamedPipe(_hfile, &_tmpc, sizeof(char), NULL, NULL, NULL);
-    if(!_success)
-      goto on_windows_error;
+    _tmpc = peek();
+    if(get_last_error())
+      break;
 
     if(filter_cb && filter_cb(_tmpc))
       break;
 
-    _success = ReadFile(_hfile, &_tmpc, sizeof(char), NULL, NULL);
+    bool _success = ReadFile(_hfile, &_tmpc, sizeof(char), NULL, NULL);
     if(!_success)
       goto on_windows_error;
 #endif
@@ -1296,11 +1402,10 @@ void file_handler::_check_write_pos(){
 
 void file_handler::_fill_error_with_last(I_vararr* res){
   nil_var _nil;
-  number_var _num = _last_error->get_error_code();
-
   res->append_var(&_nil);
-  res->append_var(_last_error);
-  res->append_var(&_num);
+
+  if(_last_error)
+    res->append_var(_last_error);
 }
 
 
@@ -1316,7 +1421,7 @@ int file_handler::_lua_line_cb(const core* lc){
 
 
   error_var* _err = pstack_call_core<error_var*>(lc, 0, 0, [](const core* lc, file_handler** _pthis, int* _parg_count){
-    lc->context->api_stack->pushvalue(lc->istate, lua_upvalueindex(1)); // get metadata
+    lc->context->api_stack->pushvalue(lc->istate, LUA_FUNCVAR_GET_UPVALUE(1)); // get metadata
     if(lc->context->api_value->type(lc->istate, -1) != LUA_TTABLE){
       string_var _errmsg = "Function is not properly setup; Object table is nil.";
       return __dm->new_class_dbg<error_var>(DYNAMIC_MANAGEMENT_DEBUG_DATA, &_errmsg, -1);
@@ -1332,7 +1437,7 @@ int file_handler::_lua_line_cb(const core* lc){
     (*_pthis) = (file_handler*)lc->context->api_value->touserdata(lc->istate, -1);
     lc->context->api_stack->pop(lc->istate, 2); // pop metadata table and object pointer
 
-    lc->context->api_stack->pushvalue(lc->istate, lua_upvalueindex(2)); // get arg count
+    lc->context->api_stack->pushvalue(lc->istate, LUA_FUNCVAR_GET_UPVALUE(2)); // get arg count
     if(lc->context->api_value->type(lc->istate, -1) != LUA_TNUMBER){
       string_var _errmsg = "Function is not properly setup; Arg count variable is not an int.";
       return __dm->new_class_dbg<error_var>(DYNAMIC_MANAGEMENT_DEBUG_DATA, &_errmsg, -1);
@@ -1356,7 +1461,7 @@ int file_handler::_lua_line_cb(const core* lc){
   vararr _results;
 
   for(int i = 1; i <= _arg_count; i++){
-    I_variant* _arg = lc->context->api_varutil->to_variant(lc->istate, lua_upvalueindex(i+2));
+    I_variant* _arg = lc->context->api_varutil->to_variant(lc->istate, LUA_FUNCVAR_GET_UPVALUE(i+2));
     _args.append_var(_arg);
     lc->context->api_varutil->delete_variant(_arg);
   }
@@ -1379,7 +1484,17 @@ const I_error_var* file_handler::get_last_error() const{
 }
 
 
-bool file_handler::check_object_validity(const I_table_var* tvar){
+bool file_handler::check_object_validity(const core* lc, const I_variant* var){
+  switch(var->get_type()){
+    break;
+      case I_table_var::get_static_lua_type():
+      case I_object_var::get_static_lua_type():
+        break;
+
+    break; default:
+      return false;
+  }
+
   std::set<comparison_variant> _checks;
 
   // indexing fdata from file_handler
@@ -1391,30 +1506,20 @@ bool file_handler::check_object_validity(const I_table_var* tvar){
     _idx++;
   }
 
-  const core* _tvar_core = tvar->get_lua_core();
-  const I_variant** _key_list = tvar->get_keys();
-  _idx = 0;
-  while(_key_list[_idx]){
-    const I_variant* _testvar = tvar->get_value(_key_list[_idx]);
-    comparison_variant _comp = _key_list[_idx];
-    auto _iter = _checks.find(_comp);
+  var->push_to_stack(lc);
+  int _table_idx = lc->context->api_stack->absindex(lc->istate, -1);
+  
+  lc->context->api_value->pushnil(lc->istate);
+  while(lc->context->api_value->next(lc->istate, _table_idx)){
+    I_variant* _keyvar = lc->context->api_varutil->to_variant(lc->istate, -2);
+    comparison_variant _keyvar_cmp = _keyvar;
+    auto _iter = _checks.find(_keyvar_cmp);
+    if(_iter != _checks.end())
+      _checks.erase(_iter);
 
-    if(!_testvar || _testvar->get_type() != I_function_var::get_static_lua_type())
-      goto skip_check;
-
-    if(_iter == _checks.end())
-      goto skip_check;
-    
-    _checks.erase(_iter);
-
-    skip_check:{}
-    
-    _idx++;
-
-    // delete result from table_var
-    if(_testvar)
-      _tvar_core->context->api_varutil->delete_variant(_testvar);
-  } 
+    lc->context->api_varutil->delete_variant(_keyvar);
+    lc->context->api_stack->pop(lc->istate, 1);
+  }
 
   return !_checks.size();
 }
@@ -1501,13 +1606,15 @@ void file_handler::read(I_object* obj, const I_vararr* args, I_vararr* res){
   _this->lock_object();
   _this->_clear_error();
 
-  // returns nothing when eof, and close the file if the open_mode has open_automatic_close flag
-  if(_this->end_of_file_reached()){
-    if(_this->_op_code & open_automatic_close)
-      _this->close();
-
-    goto skip_to_return;
+  if(_this->already_closed()){
+    _this->_set_last_error(-1, "File already closed.");
+    goto on_error_do_throw;
   }
+
+  // dummy read
+  _this->_read_str(NULL, 0);
+  if(_this->get_last_error())
+    goto on_error;
 
   for(int i = 0; i < args->get_var_count(); i++){
 { // enclosure for using goto    
@@ -1628,7 +1735,15 @@ void file_handler::read(I_object* obj, const I_vararr* args, I_vararr* res){
   on_error:{
     res->clear();
     _this->_fill_error_with_last(res);
+
     _this->unlock_object();
+    return;
+  }
+
+  on_error_do_throw:{
+    _this->unlock_object();
+    _this->get_last_error()->push_to_stack(&_this->_lc);
+    _this->_lc.context->api_util->error(_this->_lc.istate);
   }
 }
 
@@ -1758,6 +1873,11 @@ void file_handler::write(I_object* obj, const I_vararr* args, I_vararr* res){
   file_handler* _this = dynamic_cast<file_handler*>(obj);
   _this->lock_object();
   _this->_clear_error();
+
+  if(_this->already_closed()){
+    _this->_set_last_error(-1, "File already closed.");
+    goto on_error_do_throw;
+  }
   
 {// enclosure for using gotos
 
@@ -1794,7 +1914,15 @@ void file_handler::write(I_object* obj, const I_vararr* args, I_vararr* res){
   on_error:{
     res->clear();
     _this->_fill_error_with_last(res);
+    
     _this->unlock_object();
+    return;
+  }
+
+  on_error_do_throw:{
+    _this->unlock_object();
+    _this->get_last_error()->push_to_stack(&_this->_lc);
+    _this->_lc.context->api_util->error(_this->_lc.istate);
   }
 }
 
@@ -1817,6 +1945,9 @@ bool file_handler::close(){
   if(_own_handle){
     flush();
     CloseHandle(_hfile);
+
+    if(_op_code & open_temporary)
+      DeleteFile(_file_path.c_str());
   }
 
   _hfile = NULL;
@@ -1829,6 +1960,11 @@ bool file_handler::close(){
 }
 
 bool file_handler::flush(){
+#if (_WIN64) || (_WIN32)
+  if(GetFileType(_hfile) == FILE_TYPE_PIPE)
+    return false;
+#endif
+
   bool _result = true;
   lock_object();
   _clear_error();
@@ -1866,9 +2002,19 @@ char file_handler::peek(){
   }
 
 #if (_WIN64) || (_WIN32)
-  bool _success = PeekNamedPipe(_hfile, &_tmpc, sizeof(char), NULL, NULL, NULL);
-  if(!_success)
-    goto on_windows_error;
+  bool _success;
+  if(GetFileType(_hfile) == FILE_TYPE_PIPE){
+    _success = PeekNamedPipe(_hfile, &_tmpc, sizeof(char), NULL, NULL, NULL);
+    if(!_success)
+      goto on_windows_error;
+  }
+  else{
+    _success = ReadFile(_hfile, &_tmpc, sizeof(char), NULL, NULL);
+    if(!_success)
+      goto on_windows_error;
+
+    seek(seek_current, -1);
+  }
 #endif
 } // enclosure closing
 
@@ -2067,9 +2213,19 @@ size_t file_handler::get_remaining_read() const{
     goto skip_to_return;
 
 #if (_WIN64) || (_WIN32)
-  DWORD _available_bytes = 0;
-  PeekNamedPipe(_hfile, NULL, 0, NULL, &_available_bytes, NULL);
-  _result = _available_bytes;
+  if(GetFileType(_hfile) == FILE_TYPE_PIPE){
+    DWORD _available_bytes = 0;
+    PeekNamedPipe(_hfile, NULL, 0, NULL, &_available_bytes, NULL);
+    _result = _available_bytes;
+  }
+  else{
+    DWORD _file_size = GetFileSize(_hfile, NULL);
+    DWORD _file_pointer = SetFilePointer(_hfile, 0, NULL, FILE_CURRENT);
+    _result = _file_pointer != INVALID_SET_FILE_POINTER?
+      _file_size - _file_pointer:
+      0
+    ;
+  }
 #endif
 } // enclosure closing
 
@@ -2080,11 +2236,11 @@ size_t file_handler::get_remaining_read() const{
 
 
 bool file_handler::can_write() const{
-  return (_op_code & open_write) > 0 || (_op_code & open_special) > 0;
+  return (_op_code & (open_write | open_append)) > 0 || (_op_code & open_special) > 0;
 }
 
 bool file_handler::can_read() const{
-  return (_op_code & open_read) > 0 || (_op_code & open_special) > 0;
+  return (_op_code & open_write) <= 0 || (_op_code & open_special) > 0;
 }
 
 
@@ -2097,7 +2253,7 @@ void file_handler::on_object_added(const core* lc){
   _delete_object_table();
 
   string_var _keystr = FILE_HANDLER_LUA_OBJECT_TABLE;
-  _object_table = __dm->new_class_dbg<table_var>(DYNAMIC_MANAGEMENT_DEBUG_DATA, lc, -1);
+  _object_table = __dm->new_class_dbg<object_var>(DYNAMIC_MANAGEMENT_DEBUG_DATA, lc, -1);
   _object_metadata->set_value((I_variant*)&_keystr, (I_variant*)_object_table); // directly casting to not make the compiler upset
 
   // Reset the lua_core to make sure to use this compilation context.

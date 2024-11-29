@@ -24,40 +24,48 @@ static const I_dynamic_management* __dm = get_memory_manager();
 // MARK: to_variant
 
 variant* lua::to_variant(const core* lc, int stack_idx){
+  // since from_state functionality uses absindex, the value will be copied first
+  variant* _result = NULL;;
+  lc->context->api_stack->pushvalue(lc->istate, stack_idx);
+  stack_idx = -1;
+
   int _type = lc->context->api_varutil->get_special_type(lc->istate, stack_idx);
   switch(_type){
     break; case number_var::get_static_lua_type():{
-      return __dm->new_class_dbg<number_var>(DYNAMIC_MANAGEMENT_DEBUG_DATA, lc, stack_idx);
+      _result = __dm->new_class_dbg<number_var>(DYNAMIC_MANAGEMENT_DEBUG_DATA, lc, stack_idx);
     }
 
     break; case string_var::get_static_lua_type():{
-      return __dm->new_class_dbg<string_var>(DYNAMIC_MANAGEMENT_DEBUG_DATA, lc, stack_idx);
+      _result = __dm->new_class_dbg<string_var>(DYNAMIC_MANAGEMENT_DEBUG_DATA, lc, stack_idx);
     }
 
     break; case bool_var::get_static_lua_type():{
-      return __dm->new_class_dbg<bool_var>(DYNAMIC_MANAGEMENT_DEBUG_DATA, lc, stack_idx);
+      _result = __dm->new_class_dbg<bool_var>(DYNAMIC_MANAGEMENT_DEBUG_DATA, lc, stack_idx);
     }
 
     break; case table_var::get_static_lua_type():{
-      return __dm->new_class_dbg<table_var>(DYNAMIC_MANAGEMENT_DEBUG_DATA, lc, stack_idx);
+      _result = __dm->new_class_dbg<table_var>(DYNAMIC_MANAGEMENT_DEBUG_DATA, lc, stack_idx);
     }
 
     break; case lightuser_var::get_static_lua_type():{
-      return __dm->new_class_dbg<lightuser_var>(DYNAMIC_MANAGEMENT_DEBUG_DATA, lc, stack_idx);
+      _result = __dm->new_class_dbg<lightuser_var>(DYNAMIC_MANAGEMENT_DEBUG_DATA, lc, stack_idx);
     }
 
     break; case function_var::get_static_lua_type():{
-      return __dm->new_class_dbg<function_var>(DYNAMIC_MANAGEMENT_DEBUG_DATA, lc, stack_idx);
+      _result = __dm->new_class_dbg<function_var>(DYNAMIC_MANAGEMENT_DEBUG_DATA, lc, stack_idx);
     }
 
     break; case object_var::get_static_lua_type():{
-      return __dm->new_class_dbg<object_var>(DYNAMIC_MANAGEMENT_DEBUG_DATA, lc, stack_idx);
+      _result = __dm->new_class_dbg<object_var>(DYNAMIC_MANAGEMENT_DEBUG_DATA, lc, stack_idx);
     }
 
     break; default:{
-      return __dm->new_class_dbg<variant>(DYNAMIC_MANAGEMENT_DEBUG_DATA);
+      _result = __dm->new_class_dbg<variant>(DYNAMIC_MANAGEMENT_DEBUG_DATA);
     }
   }
+
+  lc->context->api_stack->pop(lc->istate, 1);
+  return _result;
 }
 
 variant* lua::to_variant_fglobal(const core* lc, const char* global_name){

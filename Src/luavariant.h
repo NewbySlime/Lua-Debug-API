@@ -22,6 +22,8 @@
 #define LUA_FUNCVAR_START_UPVALUE_IDX 1
 #define LUA_FUNCVAR_START_UPVALUE (LUA_FUNCVAR_START_UPVALUE_IDX+1)
 
+#define LUA_FUNCVAR_GET_UPVALUE(idx) lua_upvalueindex(LUA_FUNCVAR_START_UPVALUE_IDX+idx)
+
 
 // This code will be statically bind to the compilation file
 // If a code returns an interface (I_xx) create a copy with using statically linked compilation function if the code that returns comes from dynamic library
@@ -34,7 +36,35 @@ namespace lua{
   class I_vararr;
   class vararr;
 
+  class I_variant;
+  class variant;
 
+  class I_nil_var;
+  class nil_var;
+
+  class I_string_var;
+  class string_var;
+  
+  class I_number_var;
+  class number_var;
+
+  class I_bool_var;
+  class bool_var;
+
+  class I_table_var;
+  class table_var;
+
+  class I_lightuser_var;
+  class lightuser_var;
+
+  class I_function_var;
+  class function_var;
+
+  class I_error_var;
+  class error_var;
+
+  class I_object_var;
+  class object_var;
 
   // MARK: variant
 
@@ -303,6 +333,7 @@ namespace lua{
 
       virtual bool from_state(const lua::api::core* lua_core, int stack_idx) = 0;
       virtual bool from_state_copy(const lua::api::core* lua_core, int stack_idx) = 0;
+      virtual bool from_object(const I_object_var* obj) = 0;
       virtual void push_to_stack_copy(const lua::api::core* lua_core) const = 0;
 
       // Returns NULL-terminated array.
@@ -390,12 +421,17 @@ namespace lua{
       table_var(const table_var& var);
       table_var(const I_table_var* var);
       table_var(const lua::api::core* lua_core, int stack_idx);
+      // Casting to this type
+      table_var(const object_var& var);
+      table_var(const I_object_var* var);
+
       ~table_var();
 
       int get_type() const override;
 
       bool from_state(const lua::api::core* lua_core, int stack_idx) override;
       bool from_state_copy(const lua::api::core* lua_core, int stack_idx) override;
+      bool from_object(const I_object_var* obj) override;
       void push_to_stack(const lua::api::core* lua_core) const override;
       void push_to_stack_copy(const lua::api::core* lua_core) const override;
 

@@ -35,6 +35,7 @@ namespace lua{
 
       static library_loader* get_attached_object(lua_State* state);
 
+      // Since the library is a part of Lua object, do not delete the object explicitly. Instead, register the deconstructor function through the object.
       bool load_library(const char* lib_name, I_object* lib_object) override;
       I_object* get_library_object(const char* lib_name) const override;
 

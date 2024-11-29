@@ -3,6 +3,7 @@
 #include "../../src/luaapi_runtime.h"
 #include "../../src/luaapi_thread.h"
 #include "../../src/luaapi_variant_util.h"
+#include "../../src/lualibrary_iohandler.h"
 #include "../../src/luamemory_util.h"
 #include "../../src/luaobject_util.h"
 #include "../../src/luathread_control.h"
@@ -22,6 +23,7 @@ using namespace error::util;
 using namespace lua;
 using namespace lua::api;
 using namespace lua::global;
+using namespace lua::library;
 using namespace lua::memory;
 using namespace lua::object;
 using namespace lua::utility;
@@ -31,7 +33,10 @@ using namespace lua::utility;
 #define UNIT_TEST_MEMTRACKER_API_FILE "memtracker.dll"
 #define UNIT_TEST1_LUA_FILE "TestSrc/unit_test1.lua" // test1 contains main test cod
 #define UNIT_TEST2_LUA_FILE "TestSrc/unit_test2.lua" // test2 contains code that can be imported
+#define UNIT_TEST3_LUA_FILE "TestSrc/unit_test3.lua" // test3 contains code for testing io library
 #define UNIT_TEST_LOG_FILE ".log"
+
+#define UNIT_TEST_IO_LIB_LOG_FILE "TestSrc/testiolib.log"
 
 #define CHECKING_MATCHING_ERROR(cmp1, cmp2) (cmp1 == cmp2? "\x1B[38;5;46mMATCH\x1B[0m": "\x1B[38;5;196mNOT MATCH\x1B[0m")
 #define CHECKING_ERROR(cmp1, cmp2) (cmp1 == cmp2? "\x1B[38;5;46mOK\x1B[0m": "\x1B[38;5;196mERROR\x1B[0m")
@@ -79,6 +84,8 @@ fdata _test_table_fdata[] = {
 int _initiate_table_data(const core* lc);
 int _set_magic_number(const core* lc);
 
+int _delay_program(const core* lc);
+
 void _check_function_var(const core* lc, const std::string& test_name, const I_function_var* test_func, const std::string& check_name, const I_function_var* check_func);
 
 void _test_runtime_function(I_runtime_handler* rh);
@@ -89,7 +96,8 @@ void __check_stack_pos(const core* lc, int expected_value);
 
 
 int main(){
-  file_logger* _normal_logger;
+  file_logger* _normal_logger = NULL;
+  file_logger* _test_io_lib_logger = NULL;
   I_logger* _debug_logger = get_std_logger();
 
   const compilation_context* _cc = NULL;
@@ -97,8 +105,12 @@ int main(){
   I_runtime_handler* _rh1 = NULL;
   // rh2 contains code that can be imported
   I_runtime_handler* _rh2 = NULL;
-  I_print_override* _po = NULL;
-  print_override_listener* _po_listener = NULL;
+  // rh3 contains code for testing io library
+  I_runtime_handler* _rh3 = NULL;
+  I_print_override* _po_rh1 = NULL;
+  I_print_override* _po_rh3 = NULL;
+  print_override_listener* _po_rh1_listener = NULL;
+  print_override_listener* _po_rh3_listener = NULL;
   value_ref* _vref1 = NULL;
   value_ref* _vref2 = NULL;
   value_ref* _vref3 = NULL;
@@ -117,8 +129,13 @@ int main(){
 
   I_memtracker* _tracker = NULL;
 
+  // Let it leak, Lua GC will handle it.
+  I_io_handler* _rh3_io_lib = NULL;
+
   function_var* _initiate_table_data_func_var = NULL;
   function_var* _set_magic_number_func_var = NULL;
+
+  function_var* _delay_program_func_var = NULL;
 
 #define ASSERT_CHECK_WINDOWS_ERROR(condition, message) \
   if((condition)){ \
@@ -152,6 +169,8 @@ int main(){
   _initiate_table_data_func_var = new function_var(_initiate_table_data);
   _set_magic_number_func_var = new function_var(_set_magic_number);
 
+  _delay_program_func_var = new function_var(_delay_program);
+
 { // enclosure for using goto
 
   printf("Getting API context... ");
@@ -159,6 +178,7 @@ int main(){
   // MARK: Get API context
   get_api_compilation_context _get_api_context_func = (get_api_compilation_context)GetProcAddress(_api_module, CPPLUA_GET_API_COMPILATION_CONTEXT_STR);
   ASSERT_CHECK_WINDOWS_ERROR(!_get_api_context_func, "Error, Cannot get API context");
+  create_library_io_handler_func _create_library_io_handler_func = (create_library_io_handler_func)GetProcAddress(_api_module, CPPLUA_LIBRARY_CREATE_IO_HANDLER_STR);
 
   _cc = _get_api_context_func();
   printf("Success!\n");
@@ -168,6 +188,7 @@ int main(){
   _tracker->check_memory_usage(_debug_logger);
 
   _normal_logger = new file_logger(UNIT_TEST_LOG_FILE, false);
+  _test_io_lib_logger = new file_logger(UNIT_TEST_IO_LIB_LOG_FILE, false);
 
   printf("Creating runtime_handler... ");
 
@@ -187,10 +208,15 @@ int main(){
     goto on_error;
   }
 
+  // MARK: Create runtime handler 3
+  _rh3 = _cc->api_runtime->create_runtime_handler(UNIT_TEST3_LUA_FILE, true);
+
   const core _rh1_lc = _rh1->get_lua_core_copy();
   const core _rh2_lc = _rh2->get_lua_core_copy();
+  const core _rh3_lc = _rh3->get_lua_core_copy();
   __check_stack_pos(&_rh1_lc, 0);
   __check_stack_pos(&_rh2_lc, 0);
+  __check_stack_pos(&_rh3_lc, 0);
   printf("Success!\n");
 
   printf("Loading the file...\n");
@@ -217,31 +243,58 @@ int main(){
   __check_stack_pos(&_rh2_lc, 0);
   printf("Done!\n");
 
+  I_thread_control* _rh3_tc = _rh3->get_thread_control_interface();
+  printf("Loading runtime_handler 3 ... ");
+  _rh3->run_code();
+  _thread_ref = _rh3_tc->get_thread_handle(_rh3->get_main_thread_id());
+  if(_thread_ref){
+    _thread_ref->get_interface()->wait_for_thread_stop();
+    _rh3_tc->free_thread_handle(_thread_ref);
+  }
+  _rh3_lc.context->api_varutil->set_global(_rh3_lc.istate, "delay_process", _delay_program_func_var);
+  __check_stack_pos(&_rh3_lc, 0);
+  printf("Done!\n");
 
   printf("Creating print_override... ");
 
   // MARK: Create print_override
-  _po = _cc->api_runtime->create_print_override(_rh1_lc.istate);
-  if(!_po->get_lua_interface_state()){
-    printf("\n");
-    printf("Error: Cannot create print_override.\n");
+  _po_rh1 = _cc->api_runtime->create_print_override(_rh1_lc.istate);
+  if(!_po_rh1->get_lua_interface_state()){
+    printf("\nError: Cannot create print_override.\n");
     goto on_error;
   }
-  
   __check_stack_pos(&_rh1_lc, 0);
+
+  _po_rh3 = _cc->api_runtime->create_print_override(_rh3_lc.istate);
+  if(!_po_rh3->get_lua_interface_state()){
+    printf("\nError: Cannot create print_override.\n");
+    goto on_error;
+  }
+  __check_stack_pos(&_rh3_lc, 0);
+
   printf("Success!\n");
 
   printf("Creating listener for print_override, ");
-
   // MARK: Create listener for print_override
-  _po_listener = new print_override_listener(_po, _normal_logger, _debug_logger);
-  _po_listener->start_listening();
-
+  _po_rh1_listener = new print_override_listener(_po_rh1, _normal_logger, _debug_logger);
+  _po_rh1_listener->start_listening();
   __check_stack_pos(&_rh1_lc, 0);
+
+  _po_rh3_listener = new print_override_listener(_po_rh3, _test_io_lib_logger, _debug_logger);
+  _po_rh3_listener->start_listening();
+  __check_stack_pos(&_rh3_lc, 0);
+  printf("Success!\n");
+
+  printf("Loading IO Lib for Runtime 3...\n");
+  // MARK: Loading IO Lib
+  io_handler_api_constructor_data _ioh_constructor_param;
+    _ioh_constructor_param.lua_core = &_rh3_lc;
+    _ioh_constructor_param.param = NULL;
+  _rh3_io_lib = _create_library_io_handler_func(&_ioh_constructor_param);
+  _rh3->get_library_loader_interface()->load_library("io", _rh3_io_lib);
   printf("Success!\n");
   
   printf("Creating dummy coroutine...\n");
-
   // MARK: Creating dummy coroutine
   core _dummy_lc;
     _dummy_lc.istate = _rh1_lc.context->api_value->newthread(_rh1_lc.istate);
@@ -744,8 +797,6 @@ int main(){
     vararr _args;
     vararr _result;
 
-    int* _test = new int();
-
     const char* _func_name = "infinite_loop_test";
     I_variant* _var = _lc.context->api_varutil->to_variant_fglobal(_lc.istate, _func_name);
     if(_var->get_type() != I_function_var::get_static_lua_type()){
@@ -771,7 +822,6 @@ int main(){
 
     skip_execution:{}
     _lc.context->api_varutil->delete_variant(_var);
-    delete _test;
   }, _rh1);
   __check_stack_pos(&_rh1_lc, 0);
 
@@ -788,22 +838,80 @@ int main(){
 
   _thread_ref->get_interface()->stop_running();
   printf("Infinite loop stopped!\n");
-  __check_stack_pos(&_rh1_lc, 0);
 
   _rh1_tc->free_thread_handle(_thread_ref);
+  __check_stack_pos(&_rh1_lc, 0);
+
+  // MARK: Test io_handler library
+  printf("\nTesting IO Library...\n");
+  printf("Logs will be redirected to '" UNIT_TEST3_LUA_FILE "' file.\n");
+  _test_tid = _rh3_tc->run_execution([](void* data){
+    I_runtime_handler* _rh3 = (I_runtime_handler*)data;
+    core _lc = _rh3->get_lua_core_copy();
+    I_thread_handle* _thread = _lc.context->api_thread->get_thread_handle();
+
+    vararr _args;{
+      string_var _logger_file_name = UNIT_TEST_IO_LIB_LOG_FILE; _args.append_var(&_logger_file_name);
+    }
+    vararr _result;
+
+    const char* _func_name = "test_io_library";
+    I_variant* _var = _lc.context->api_varutil->to_variant_fglobal(_lc.istate, _func_name);
+    if(_var->get_type() != I_function_var::get_static_lua_type()){
+      printf("Error: Function for io library testing is not valid.\n");
+      goto skip_execution;
+    }
+
+    I_function_var* _fvar = dynamic_cast<I_function_var*>(_var);
+
+    int _errcode = _fvar->run_function(&_lc, &_args, &_result);
+    if(_thread->is_stop_signal())
+      goto skip_execution;
+
+    if(_errcode != LUA_OK){
+      string_store _str;
+      if(_result.get_var_count() > 0)
+        _result.get_var(0)->to_string(&_str);
+
+      printf("Error: Something went wrong: %s\n", _str.data.c_str());
+      goto skip_execution;
+    }
+
+
+    skip_execution:{}
+    _lc.context->api_varutil->delete_variant(_var);
+  }, _rh3);
+  __check_stack_pos(&_rh3_lc, 0);
+
+  _thread_ref = _rh3_tc->get_thread_handle(_test_tid);
+  if(_thread_ref){
+    _thread_ref->get_interface()->wait_for_thread_stop();
+    _rh1_tc->free_thread_handle(_thread_ref);
+  }
+  __check_stack_pos(&_rh3_lc, 0);
+  printf("Done.\n");
 
 } // enclosure closing
 
   on_error:{}
 
+  // MARK: Clearing objects
   if(_cc){
-    if(_po_listener){
-      _po_listener->stop_listening();
-      delete _po_listener;
+    if(_po_rh1_listener){
+      _po_rh1_listener->stop_listening();
+      delete _po_rh1_listener;
     }
 
-    if(_po)
-      _cc->api_runtime->delete_print_override(_po);
+    if(_po_rh3_listener){
+      _po_rh3_listener->stop_listening();
+      delete _po_rh3_listener;
+    }
+
+    if(_po_rh1)
+      _cc->api_runtime->delete_print_override(_po_rh1);
+    
+    if(_po_rh3)
+      _cc->api_runtime->delete_print_override(_po_rh3);
 
     if(_get_table_var)
       _cc->api_varutil->delete_variant(_get_table_var);
@@ -819,6 +927,9 @@ int main(){
 
     if(_set_magic_number_func_var)
       delete _set_magic_number_func_var;
+
+    if(_delay_program_func_var)
+      delete _delay_program_func_var;
 
     if(_test_table_data_var)
       _cc->api_varutil->delete_variant(_test_table_data_var);
@@ -840,6 +951,9 @@ int main(){
     
     if(_rh2)
       _cc->api_runtime->delete_runtime_handler(_rh2);
+
+    if(_rh3)
+      _cc->api_runtime->delete_runtime_handler(_rh3);
   }
 
   if(_api_module)
@@ -847,6 +961,9 @@ int main(){
 
   if(_normal_logger)
     delete _normal_logger;
+
+  if(_test_io_lib_logger)
+    delete _test_io_lib_logger;
 
   if(_memtracker_module){
     if(_tracker){
@@ -988,7 +1105,6 @@ int _initiate_table_data(const core* lc){
   return 0;
 }
 
-
 int _set_magic_number(const core* lc){
   if(lc->context->api_stack->gettop(lc->istate) <= 0){
     printf("[set_magic_number func] Argument is insufficient.\n");
@@ -997,10 +1113,30 @@ int _set_magic_number(const core* lc){
 
   if(lc->context->api_value->type(lc->istate, 1) != LUA_TNUMBER){
     printf("[set_magic_number func] Argument is not a number.\n");
+    return 0;
   }
 
   lc->context->api_stack->pushvalue(lc->istate, 1);
   lc->context->api_value->setglobal(lc->istate, "magic_number");
+
+  return 0;
+}
+
+
+int _delay_program(const core* lc){
+  if(lc->context->api_stack->gettop(lc->istate) <= 0){
+    printf("[delay_program func] Argument is insufficient.\n");
+    return 0;
+  }
+
+  if(lc->context->api_value->type(lc->istate, 1) != LUA_TNUMBER){
+    printf("[delay_program func] Argument is not a number.\n");
+    return 0;
+  }
+
+  I_number_var* _time_var = dynamic_cast<I_number_var*>(lc->context->api_varutil->to_variant(lc->istate, 1));
+  Sleep((DWORD)_time_var->get_number());
+  lc->context->api_varutil->delete_variant(_time_var);
 
   return 0;
 }

@@ -234,7 +234,7 @@ bool runtime_handler::currently_running() const{
   if(!_ref)
     return false;
 
-  bool _result = _ref->get_interface()->is_stopped();
+  bool _result = !_ref->get_interface()->is_stopped();
   _thread_control->free_thread_handle(_ref);
   return _result;
 }
