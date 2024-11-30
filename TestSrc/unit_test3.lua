@@ -33,6 +33,15 @@ function test_io_library(log_file_name)
   end
   print("Success, error thrown.")
 
+  print("Printing directly from IO...")
+  io.output():write("this is a test from direct IO function.\n")
+  print("Done.")
+  
+  print("Testing printing to 'test_default_output.txt' from IO...")
+  io.output("TestSrc/test_default_output.txt")
+  io.write("test default output data")
+  print("Done.")
+
   print("Opening temporary file...")
   print("(This should be manually checked by the tester.)")
   tmpfileh = io.tmpfile()

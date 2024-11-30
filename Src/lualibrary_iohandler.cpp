@@ -99,7 +99,7 @@ static const fdata _io_handler_fdata[] = {
 };
 
 
-#define IO_HANDLER_REPLACE_DEF_FILE(def_file) \
+#define IO_HANDLER_REPLACE_DEF_FILE(def_file, file_open_mode) \
   vararr args, res; \
     _initialize_function_vararr(lc, &args, &res); \
   io_handler* _this = _get_object_by_closure(lc); \
@@ -111,8 +111,9 @@ static const fdata _io_handler_fdata[] = {
   /* Getting arguments */ \
   {const I_variant* _check_var; \
     if(args.get_var_count() < 1){ /* push default input file when argument is empty */ \
+      res.clear(); \
       res.append_var(_this->def_file); \
-      return _finish_function_vararr(lc, &args, &res); \
+      goto skip_to_return; \
     } \
      \
     _check_var = args.get_var(0); \
@@ -134,7 +135,7 @@ static const fdata _io_handler_fdata[] = {
       /* set default input file from file name */ \
       break; case I_string_var::get_static_lua_type():{ \
         const I_string_var* _strvar = dynamic_cast<const I_string_var*>(_check_var); \
-        file_handler* _tmp_obj = __dm->new_class_dbg<file_handler>(DYNAMIC_MANAGEMENT_DEBUG_DATA, &_this->_lc, _strvar->get_string(), file_handler::open_read); \
+        file_handler* _tmp_obj = __dm->new_class_dbg<file_handler>(DYNAMIC_MANAGEMENT_DEBUG_DATA, &_this->_lc, _strvar->get_string(), (file_open_mode)); \
         if(_tmp_obj->get_last_error()){ \
           _this->_copy_error_from(_tmp_obj); \
           __dm->delete_class_dbg(_tmp_obj, DYNAMIC_MANAGEMENT_DEBUG_DATA); \
@@ -156,7 +157,7 @@ static const fdata _io_handler_fdata[] = {
   } \
    \
 } /* enclosure closing */ \
-   \
+  skip_to_return:{} \
   _this->unlock_object(); \
   return _finish_function_vararr(lc, &args, &res); \
    \
@@ -581,15 +582,15 @@ int io_handler::open(const lua::api::core* lc){
 }
 
 int io_handler::input(const lua::api::core* lc){
-  IO_HANDLER_REPLACE_DEF_FILE(_filein_def)
+  IO_HANDLER_REPLACE_DEF_FILE(_filein_def, I_file_handler::open_read)
 } 
 
 int io_handler::output(const lua::api::core* lc){
-  IO_HANDLER_REPLACE_DEF_FILE(_fileout_def)
+  IO_HANDLER_REPLACE_DEF_FILE(_fileout_def, I_file_handler::open_write)
 }
 
 int io_handler::error(const lua::api::core* lc){
-  IO_HANDLER_REPLACE_DEF_FILE(_fileerr_def)
+  IO_HANDLER_REPLACE_DEF_FILE(_fileerr_def, I_file_handler::open_write)
 }
 
 int io_handler::lines(const lua::api::core* lc){
