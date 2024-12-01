@@ -1604,6 +1604,7 @@ void file_handler::read(I_object* obj, const I_vararr* args, I_vararr* res){
   // L: read a line, with the newline character
   // (number): read a number of bytes
   file_handler* _this = dynamic_cast<file_handler*>(obj);
+  vararr _new_args;
   _this->lock_object();
   _this->_clear_error();
 
@@ -1617,7 +1618,15 @@ void file_handler::read(I_object* obj, const I_vararr* args, I_vararr* res){
   if(_this->get_last_error())
     goto on_error;
 
-  for(int i = 0; i < args->get_var_count(); i++){
+  // switch to default argument
+  if(args->get_var_count() <= 0){
+    string_var _str = "l";
+    _new_args.append_var(&_str);
+
+    args = &_new_args;
+  }
+
+  for(int i = 0; i < _new_args.get_var_count(); i++){
 { // enclosure for using goto    
     if(_this->end_of_file_reached())
       goto on_error_eof;
@@ -1626,7 +1635,7 @@ void file_handler::read(I_object* obj, const I_vararr* args, I_vararr* res){
     if(_this->get_last_error())
       goto on_error_eof;
 
-    const I_variant* _iarg = args->get_var(i); 
+    const I_variant* _iarg = _new_args.get_var(i); 
     if(_iarg->get_type() == LUA_TSTRING){
       const I_string_var* _str_var = dynamic_cast<const I_string_var*>(_iarg);
       const char* _cstr = _str_var->get_string();
@@ -2198,10 +2207,21 @@ void file_handler::set_buffering_mode(buffering_mode mode){
 
 
 bool file_handler::already_closed() const{
-  return !_hfile;  
+  if(_hfile && _is_pipe_handle){
+    char _tmp;
+    if(_op_code & open_write)
+      return !WriteFile(_hfile, &_tmp, 0, NULL, NULL);
+    else
+      return !PeekNamedPipe(_hfile, &_tmp, sizeof(char), NULL, NULL, NULL);
+  }
+
+  return !_hfile;
 }
 
 bool file_handler::end_of_file_reached() const{
+  if(_is_pipe_handle)
+    return already_closed();
+
   return get_remaining_read() <= 0;
 }
 
