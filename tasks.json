@@ -1,7 +1,4 @@
 {
-  // This file is for build tasks for VSCode.
-  // As MSVC compiler need environment configuration used within Visual Studio, needed to use automation to successfully built the needed compilation file.
-
   // See https://go.microsoft.com/fwlink/?LinkId=733558
   // for the documentation about the tasks.json format
   "version": "2.0.0",
@@ -10,61 +7,10 @@
     "/c"
   ],
   "tasks": [
-    // MARK: Main Build
-    {
-      "label": "mingw-build-main",
-      "args": [
-        "make --directory=${workspaceFolder}\\Lua-Debug-API f_use_mingw proc_compile"
-      ],
-      "problemMatcher": [],
-      "group": {
-        "kind": "build",
-        "isDefault": true
-      }
-    },
-
-    {
-      "label": "mingw-build-main-debug",
-      "args": [
-        "make --directory=${workspaceFolder}\\Lua-Debug-API f_use_mingw f_as_debug proc_compile"
-      ],
-      "problemMatcher": [],
-      "group": {
-        "kind": "build",
-        "isDefault": true
-      }
-    },
-
-    {
-      "label": "msvc-build-main",
-      "args": [
-        "vsdevcmd.bat && make --directory=${workspaceFolder}\\Lua-Debug-API f_use_msvc proc_compile"
-      ],
-      "problemMatcher": [],
-      "group": {
-        "kind": "build",
-        "isDefault": true
-      }
-    },
-
-    {
-      "label": "msvc-build-main-debug",
-      "args": [
-        "vsdevcmd.bat && make --directory=${workspaceFolder}\\Lua-Debug-API f_use_msvc f_as_debug proc_compile"
-      ],
-      "problemMatcher": [],
-      "group": {
-        "kind": "build",
-        "isDefault": true
-      }
-    },
-
-
-    // MARK: DLL Build
     {
       "label": "mingw-build-dll",
       "args": [
-        "make --directory=${workspaceFolder}\\Lua-Debug-API f_use_mingw f_as_dll proc_compile"
+        "mingw32-make --directory=${workspaceFolder}\\Lua-Debug-API f_use_mingw proc_compile"
       ],
       "problemMatcher": [],
       "group": {
@@ -72,11 +18,10 @@
         "isDefault": true
       }
     },
-
     {
       "label": "mingw-build-dll-debug",
       "args": [
-        "make --directory=${workspaceFolder}\\Lua-Debug-API f_use_mingw f_as_dll f_as_debug proc_compile"
+        "mingw32-make --directory=${workspaceFolder}\\Lua-Debug-API f_use_mingw f_as_debug proc_compile"
       ],
       "problemMatcher": [],
       "group": {
@@ -84,11 +29,10 @@
         "isDefault": true
       }
     },
-
     {
       "label": "msvc-build-dll",
       "args": [
-        "vsdevcmd.bat && make --directory=${workspaceFolder}\\Lua-Debug-API f_use_msvc f_as_dll proc_compile"
+        "vsdevcmd.bat && mingw32-make --directory=${workspaceFolder}\\Lua-Debug-API f_use_msvc proc_compile"
       ],
       "problemMatcher": [],
       "group": {
@@ -96,11 +40,54 @@
         "isDefault": true
       }
     },
-
     {
       "label": "msvc-build-dll-debug",
       "args": [
-        "vsdevcmd.bat && make --directory=${workspaceFolder}\\Lua-Debug-API f_use_msvc f_as_dll f_as_debug proc_compile"
+        "vsdevcmd.bat && mingw32-make --directory=${workspaceFolder}\\Lua-Debug-API f_use_msvc f_as_debug proc_compile"
+      ],
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      }
+    },
+    {
+      "label": "mingw-build-unit-test",
+      "args": [
+        "mingw32-make --directory=${workspaceFolder}\\Lua-Debug-API f_use_mingw proc_unit_test"
+      ],
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      }
+    },
+    {
+      "label": "mingw-build-unit-test-debug",
+      "args": [
+        "mingw32-make --directory=${workspaceFolder}\\Lua-Debug-API f_use_mingw f_as_debug proc_unit_test"
+      ],
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      }
+    },
+    {
+      "label": "msvc-build-unit-test",
+      "args": [
+        "vsdevcmd.bat && mingw32-make --directory=${workspaceFolder}\\Lua-Debug-API f_use_msvc proc_unit_test"
+      ],
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      }
+    },
+    {
+      "label": "msvc-build-unit-test-debug",
+      "args": [
+        "vsdevcmd.bat && mingw32-make --directory=${workspaceFolder}\\Lua-Debug-API f_use_msvc f_as_debug proc_unit_test"
       ],
       "problemMatcher": [],
       "group": {
