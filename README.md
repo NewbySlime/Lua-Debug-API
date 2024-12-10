@@ -20,7 +20,7 @@ While playing Minecraft with OpenComputers mod, I was curious how some programmi
 
 ## See Also
 ### [Lua Debugger](https://github.com/NewbySlime/Lua-Debugger-GUI)
-![GUI Debugger](Lua-Debug-API/README-Asset/gui-debugger.png)
+![GUI Debugger](README-Asset/gui-debugger.png)
 
 ## Example
 ### Compilation Context
@@ -85,7 +85,7 @@ mingw32-make f_use_mingw f_as_debug proc_compile
 ```
 
 Alternatively, use configuration presets I use for VSCode (in tasks.json)
-![Build Task Screenshot](Lua-Debug-API/README-Asset/build-task.png)
+![Build Task Screenshot](README-Asset/build-task.png)
 
 
 After building, two files are created, static compilation file and DLL file. You only have to use static file to integrate it with your program. The DLL can be dynamically linked with C++ linker or can be used with OS API functions (ex. LoadLibrary in Windows).
