@@ -18,6 +18,11 @@
 namespace lua{
   class I_variant;
   class runtime_handler;
+
+  namespace api{
+    struct core;
+  }
+
   namespace debug{
     class I_execution_flow;
     class I_hook_handler;
@@ -102,7 +107,7 @@ namespace lua{
       void _wait_for_thread_stop();
 
       void _hook_cb(lua_State* state);
-      static void _hook_cb_static(lua_State* state, void* cbdata);
+      static void _hook_cb_static(const lua::api::core* lc, void* cbdata);
 
     public:
 #if (_WIN64) || (_WIN32)

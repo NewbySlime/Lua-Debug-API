@@ -1,4 +1,5 @@
 #include "../../src/luaapi_core.h"
+#include "../../src/luaapi_debug.h"
 #include "../../src/luaapi_memory_util.h"
 #include "../../src/luaapi_runtime.h"
 #include "../../src/luaapi_thread.h"
@@ -11,6 +12,7 @@
 #include "../../src/luautility.h"
 #include "../../src/luavalue_ref.h"
 #include "../../src/luavariant_arr.h"
+#include "../../Src/string_util.h"
 #include "../memtracker/memtracker.h"
 #include "error_util.h"
 #include "file_logger.h"
@@ -22,6 +24,7 @@ using namespace dynamic_library::util;
 using namespace error::util;
 using namespace lua;
 using namespace lua::api;
+using namespace lua::debug;
 using namespace lua::global;
 using namespace lua::library;
 using namespace lua::memory;
@@ -34,6 +37,8 @@ using namespace lua::utility;
 #define UNIT_TEST1_LUA_FILE "TestSrc/unit_test1.lua" // test1 contains main test cod
 #define UNIT_TEST2_LUA_FILE "TestSrc/unit_test2.lua" // test2 contains code that can be imported
 #define UNIT_TEST3_LUA_FILE "TestSrc/unit_test3.lua" // test3 contains code for testing io library
+#define UNIT_TEST_FILE_INFO "TestSrc/unit_test_file_info.lua" // test_file_info contains code for checking valid lines
+#define UNIT_TEST_FILE_INFO_RESULT "TestSrc/file_info_result.txt"
 #define UNIT_TEST_LOG_FILE ".log"
 
 #define UNIT_TEST_IO_LIB_LOG_FILE "TestSrc/testiolib.log"
@@ -100,6 +105,11 @@ int main(){
   file_logger* _test_io_lib_logger = NULL;
   I_logger* _debug_logger = get_std_logger();
 
+#if (_WIN64) | (_WIN32)
+  HANDLE _file_info_source_file = INVALID_HANDLE_VALUE;
+  HANDLE _file_info_result_file = INVALID_HANDLE_VALUE;
+#endif
+
   const compilation_context* _cc = NULL;
   // rh1 contains main test code
   I_runtime_handler* _rh1 = NULL;
@@ -107,6 +117,7 @@ int main(){
   I_runtime_handler* _rh2 = NULL;
   // rh3 contains code for testing io library
   I_runtime_handler* _rh3 = NULL;
+  I_file_info* _fi = NULL;
   I_print_override* _po_rh1 = NULL;
   I_print_override* _po_rh3 = NULL;
   print_override_listener* _po_rh1_listener = NULL;
@@ -786,6 +797,74 @@ int main(){
     _test_table_data_fvar->run_function(&_rh1_lc, &_args, &_res);
   }
 
+  // MARK: Test file_info
+  printf("\nTesting file_info object\n");
+  printf("Checking file info.\n");
+  _fi = _cc->api_debug->create_file_info(UNIT_TEST_FILE_INFO);
+  if(_fi->get_last_error()){
+    string_store _str; _fi->get_last_error()->to_string(&_str);
+    printf("Error: %s\n", _str.data.c_str());
+    goto on_error;
+  }
+
+  printf("File info result in: '%s'\n", UNIT_TEST_FILE_INFO_RESULT);
+#if (_WIN64) | (_WIN32)
+  _file_info_source_file = CreateFile(
+    UNIT_TEST_FILE_INFO,
+    GENERIC_READ,
+    0,
+    NULL,
+    OPEN_EXISTING,
+    0,
+    NULL
+  );
+
+  if(_file_info_source_file == INVALID_HANDLE_VALUE){
+    printf("Error when opening '%s': %s\n", UNIT_TEST_FILE_INFO, get_windows_error_message(GetLastError()).c_str());
+    goto on_error;
+  }
+
+  _file_info_result_file = CreateFile(
+    UNIT_TEST_FILE_INFO_RESULT,
+    GENERIC_WRITE,
+    0,
+    NULL,
+    CREATE_ALWAYS,
+    0,
+    NULL
+  );
+
+  if(_file_info_result_file == INVALID_HANDLE_VALUE){
+    printf("Error when opening '%s': %s\n", UNIT_TEST_FILE_INFO_RESULT, get_windows_error_message(GetLastError()).c_str());
+    goto on_error;
+  }
+
+  for(long i = 0; i < _fi->get_line_count(); i++){
+    if(_fi->is_line_valid(i))
+      WriteFile(_file_info_result_file, "[v] ", 4, NULL, NULL);
+    else
+      WriteFile(_file_info_result_file, "    ", 4, NULL, NULL);
+
+    long _start_idx = _fi->get_line_idx(i);
+    long _finish_idx = _fi->get_line_idx(i+1);
+    if(_finish_idx < 0)
+      _finish_idx = GetFileSize(_file_info_source_file, NULL);
+
+    const long _buffer_size = 512;
+    char _buffer[_buffer_size];
+
+    while(_start_idx < _finish_idx){
+      DWORD _read_len_target = min(_buffer_size, _finish_idx-_start_idx);
+      DWORD _read_len;
+      ReadFile(_file_info_source_file, _buffer, _read_len_target, &_read_len, NULL);
+      WriteFile(_file_info_result_file, _buffer, _read_len, NULL, NULL);
+
+      _start_idx += _read_len;
+    }
+  }
+#endif
+
+
   // MARK: Test runtime_handler
   printf("\nExtended testing for runtime_handler\n");
   printf("Testing stopping an infinite loop...\n");
@@ -945,6 +1024,17 @@ int main(){
 
     if(_vref3)
       delete _vref3;
+
+#if (_WIN64) | (_WIN32)
+    if(_file_info_source_file != INVALID_HANDLE_VALUE)
+      CloseHandle(_file_info_source_file);
+
+    if(_file_info_result_file != INVALID_HANDLE_VALUE)
+      CloseHandle(_file_info_result_file);
+#endif
+
+    if(_fi)
+      _cc->api_debug->delete_file_info(_fi);
 
     if(_rh1)
       _cc->api_runtime->delete_runtime_handler(_rh1);

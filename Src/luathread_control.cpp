@@ -1,4 +1,5 @@
 #include "dllutil.h"
+#include "luaapi_core.h"
 #include "luamemory_util.h"
 #include "luaruntime_handler.h"
 #include "luathread_control.h"
@@ -17,6 +18,7 @@
 using namespace dynamic_library::util;
 using namespace error::util;
 using namespace lua;
+using namespace lua::api;
 using namespace lua::debug;
 using namespace lua::memory;
 using namespace lua::thread;
@@ -121,8 +123,8 @@ void thread_handle::_hook_cb(lua_State* state){
   throw std::runtime_error("thread stopped");
 }
 
-void thread_handle::_hook_cb_static(lua_State* state, void* cbdata){
-  ((thread_handle*)cbdata)->_hook_cb(state);
+void thread_handle::_hook_cb_static(const core* lc, void* cbdata){
+  ((thread_handle*)cbdata)->_hook_cb((lua_State*)lc->istate);
 }
 
 

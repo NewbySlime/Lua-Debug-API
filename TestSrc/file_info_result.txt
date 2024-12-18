@@ -1,0 +1,18 @@
+[v] function test_func()
+[v]   print()
+[v]   function another_func()
+    
+[v]     print()
+[v]     function another_func()
+[v]       print()
+    
+[v]     end
+[v]   end
+      -- this is a comment
+    
+      --[[
+        this is a multiline comment
+        ]]
+    
+[v]   print()
+[v] end

@@ -42,6 +42,14 @@ class _api_debug_function: public I_debug{
     void delete_variable_watcher(I_variable_watcher* object) override{
       cpplua_delete_variable_watcher(object);
     }
+
+    I_file_info* create_file_info(const char* file_path) override{
+      return cpplua_create_file_info(file_path);
+    }
+
+    void delete_file_info(I_file_info* obj) override{
+      cpplua_delete_file_info(obj);
+    }
 };
 
 

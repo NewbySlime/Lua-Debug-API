@@ -2081,7 +2081,7 @@ std::string error_var::to_string() const{
     return "nil";
 
   std::string _err_str = _err_data->to_string();
-  return format_str_mem(__dm, "(%d) %s", _error_code, _err_str.c_str());
+  return format_str_mem(__dm, "(%lld) %s", _error_code, _err_str.c_str());
 }
 
 

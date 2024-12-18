@@ -1,3 +1,1 @@
-this is a test
-this text is in the second lines
-line closing for the file
+test
