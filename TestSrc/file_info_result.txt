@@ -16,3 +16,11 @@
     
 [v]   print()
 [v] end
+    
+    
+[v] local test_var = 1
+[v] local function print_iter(n)
+[v]   for i = 1, n, 1 do
+[v]     test_print(string.format("number: %d", i));
+[v]   end
+[v] end

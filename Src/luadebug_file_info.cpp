@@ -117,9 +117,9 @@ void file_info::_update_file_info(char* buffer){
 }
 
 
-void file_info::_check_code_buffer(char* buffer, size_t buffer_size, long start_line, long finish_line){
+bool file_info::_check_code_buffer(char* buffer, size_t buffer_size, long start_line, long finish_line, long recur_idx){
   if((finish_line-start_line) <= 0)
-    return;
+    return false;
 
   long _start_line_idx = _lines_info[start_line].buffer_idx_start+LUA_EMPTY_CODE_FILLER_SIZE;
   long _last_line_idx = buffer_size;
@@ -135,13 +135,23 @@ void file_info::_check_code_buffer(char* buffer, size_t buffer_size, long start_
 
   int _errcode = luaL_loadstring(_lstate, &buffer[_start_line_idx-LUA_EMPTY_CODE_FILLER_SIZE]);
   if(_errcode != LUA_OK){
-    variant* _err_obj = to_variant(_lstate, -1);
-    string_store _str; _err_obj->to_string(&_str);
-    cpplua_delete_variant(_err_obj);
-    lua_pop(_lstate, 1); // pop error obj
+    if(recur_idx < 1){
+      variant* _err_obj = to_variant(_lstate, -1);
+      string_store _str; _err_obj->to_string(&_str);
+      cpplua_delete_variant(_err_obj);
+      lua_pop(_lstate, 1); // pop error obj
 
-    _set_error_data(_errcode, _str.data.c_str());
-    return;
+      _set_error_data(_errcode, _str.data.c_str());
+    }
+    else{ // to mitigate problem with "local function" syntax not detected by Lua debug 
+      lua_pop(_lstate, 1); // pop error obj
+      if(_check_code_buffer(buffer, buffer_size, start_line+1, finish_line, recur_idx+1)){
+        if(start_line < _lines_info.size())
+          _lines_info[start_line].valid_line = true;
+      }
+    }
+
+    return false;
   }
 
   buffer[_last_line_idx] = _prev_last_char;
@@ -186,14 +196,16 @@ void file_info::_check_code_buffer(char* buffer, size_t buffer_size, long start_
     _check_list.insert(_check_list.end(), _data);
 
     _lines_info[_curr_line].valid_line = true;
-    _last_line = _curr_line+1; 
+    _last_line = _curr_line+1;
   }
 
   // table lines
   lua_pop(_lstate, 1);
 
   for(auto _iter: _check_list)
-    _check_code_buffer(buffer, buffer_size, _iter.start_line, _iter.finish_line);
+    _check_code_buffer(buffer, buffer_size, _iter.start_line, _iter.finish_line, recur_idx+1);
+
+  return _check_list.size() > 0;
 }
 
 

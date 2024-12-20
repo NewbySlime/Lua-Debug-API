@@ -46,8 +46,9 @@ namespace lua::debug{
       void _delete_error_data();
 
       void _update_file_info(char* buffer);
+      // returns true if found something
       // NOTE: buffer should be 1+ more bigger than the actual string.
-      void _check_code_buffer(char* buffer, size_t buffer_size, long start_line, long finish_line);
+      bool _check_code_buffer(char* buffer, size_t buffer_size, long start_line, long finish_line, long recur_idx = 0);
 
     public:
       file_info(const char* file_path);
