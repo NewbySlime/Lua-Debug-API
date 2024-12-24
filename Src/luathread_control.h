@@ -15,6 +15,11 @@
 #include "set"
 
 
+#if !((_WIN64) || (_WIN32))
+#define INFINITE 0xFFFFFFFF
+#endif
+
+
 namespace lua{
   class I_variant;
   class runtime_handler;
@@ -34,10 +39,10 @@ namespace lua{
       // Blocking until the thread is stopped.
       virtual void stop_running() = 0;
       virtual void signal_stop() = 0;
+      virtual bool wait_for_thread_stop(unsigned long wait_ms = INFINITE) = 0;
+
       // Called when the thread is signalled to stop.
       virtual bool is_stop_signal() const = 0;
-
-      virtual void wait_for_thread_stop() = 0;
       virtual bool is_stopped() const = 0;
 
       virtual void pause() = 0;
@@ -104,7 +109,7 @@ namespace lua{
       void _unlock_object();
 
       void _signal_stop();
-      void _wait_for_thread_stop();
+      bool _wait_for_thread_stop(unsigned long wait_ms);
 
       void _hook_cb(lua_State* state);
       static void _hook_cb_static(const lua::api::core* lc, void* cbdata);
@@ -117,9 +122,9 @@ namespace lua{
 
       void stop_running() override;
       void signal_stop() override;
-      bool is_stop_signal() const override;
+      bool wait_for_thread_stop(unsigned long wait_ms) override;
 
-      void wait_for_thread_stop() override;
+      bool is_stop_signal() const override;
       bool is_stopped() const override;
 
       void pause() override;

@@ -101,17 +101,19 @@ void thread_handle::_signal_stop(){
   _stop_thread = true;
 }
 
-void thread_handle::_wait_for_thread_stop(){
+bool thread_handle::_wait_for_thread_stop(unsigned long wait_ms){
   if(is_stopped())
-    return;
+    return false;
 
 #if (_WIN64) || (_WIN32)
   // skips if waiting same thread as current
   if(GetThreadId(_thread_handle) == GetCurrentThreadId())
-    return;
+    return false;
     
-  WaitForSingleObject(_thread_handle, INFINITE);
+  WaitForSingleObject(_thread_handle, wait_ms);
 #endif
+
+  return is_stopped();
 }
 
 
@@ -132,7 +134,7 @@ void thread_handle::stop_running(){
   _signal_stop();
 
   _exec_flow->resume_execution();
-  _wait_for_thread_stop();
+  _wait_for_thread_stop(INFINITE);
 }
 
 void thread_handle::signal_stop(){
@@ -144,8 +146,8 @@ bool thread_handle::is_stop_signal() const{
 }
 
 
-void thread_handle::wait_for_thread_stop(){
-  _wait_for_thread_stop();
+bool thread_handle::wait_for_thread_stop(unsigned long wait_ms){
+  return _wait_for_thread_stop(wait_ms);
 }
 
 bool thread_handle::is_stopped() const{
