@@ -1,3 +1,5 @@
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/X8X0175H9C)
+
 # Lua Debug API
 
 A Lua Library extension using C++ as the icing of Lua's cake.
@@ -101,8 +103,3 @@ Since there are some modifications to the original Lua code for this C++ API, th
 - Changes to lua_lock and lua_unlock to use C++ API multithreading code for synchronization.
 
 - Minor changes to Lua API functions (some are excluded, functions that uses two stacks like transferring data between state's stack (lua_xmove)) to use macro for swapping state to thread dependent state (removing possibility for multiple threads accessing one stack).
-
-
-
-## Support Me!
-[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/X8X0175H9C)
