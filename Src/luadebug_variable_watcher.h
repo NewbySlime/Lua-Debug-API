@@ -14,7 +14,7 @@
 #endif
 
 
-// NOTE: since the introduction of thread dependent state system, every usage of the bound state will always be that state (of a thread) regardless which thread are calling it. It works by locking a state and then disabling the system for a moment.
+// NOTE: since the introduction of thread dependent state system, every usage of the bound state will always use that state (of a thread) regardless which thread are calling it. It works by locking a state and then disabling the system for a moment.
 
 
 namespace lua::debug{
@@ -25,6 +25,11 @@ namespace lua::debug{
 
       virtual bool fetch_global_table_data() = 0;
       virtual void update_global_table_ignore() = 0;
+      virtual void clear_global_table_ignore() = 0;
+
+      // defaults to true
+      virtual void ignore_internal_variables(bool flag) = 0;
+      virtual bool is_ignore_internal_variables() const = 0;
 
       virtual bool fetch_current_function_variables() = 0;
 
@@ -57,7 +62,10 @@ namespace lua::debug{
 
       std::vector<_variable_data*> _vdata_list;
       std::map<std::string, _variable_data*> _vdata_map;
+
       std::set<lua::comparison_variant> _global_ignore_variables;
+
+      bool _ignore_internal_variables = true;
 
 #if (_WIN64) || (_WIN32)
       CRITICAL_SECTION _object_mutex;
@@ -74,6 +82,7 @@ namespace lua::debug{
       void _unlock_state() const;
 
       void _clear_variable_data();
+      
 
     public:
       variable_watcher(lua_State* state);
@@ -81,6 +90,10 @@ namespace lua::debug{
 
       bool fetch_global_table_data() override;
       void update_global_table_ignore() override;
+      void clear_global_table_ignore() override;
+
+      void ignore_internal_variables(bool flag) override;
+      bool is_ignore_internal_variables() const override;
 
       bool fetch_current_function_variables() override;
 

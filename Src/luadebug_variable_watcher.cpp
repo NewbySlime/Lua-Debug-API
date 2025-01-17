@@ -1,30 +1,123 @@
+#include "dllutil.h"
 #include "library_linking.h"
 #include "luaapi_variant_util.h"
 #include "luadebug_variable_watcher.h"
 #include "luainternal_storage.h"
 #include "luamemory_util.h"
+#include "luastate_util.h"
 #include "luatable_util.h"
 #include "luathread_util.h"
+#include "luautility.h"
 #include "luavariant_util.h"
 #include "std_logger.h"
 
+#if (_WIN64) | (_WIN32)
+#include "Windows.h"
+#endif
 
+using namespace dynamic_library::util;
 using namespace lua;
 using namespace lua::api;
 using namespace lua::debug;
 using namespace lua::internal;
 using namespace lua::memory;
 using namespace lua::thread;
+using namespace lua::utility;
 using namespace ::memory;
 
 
 #ifdef LUA_CODE_EXISTS
 
 static const I_dynamic_management* __dm = get_memory_manager();
+static std::set<comparison_variant>* _internal_variables_list = NULL;
+
+#if (_WIN64) | (_WIN32)
+static CRITICAL_SECTION* _code_mutex = NULL;
+#endif
+
+static void _code_initiate();
+static void _code_deinitiate();
+static destructor_helper _dh(_code_deinitiate);
+
+static void _lock_code();
+static void _unlock_code();
+
+
+static void _code_initiate(){
+  if(!_code_mutex){
+    _code_mutex = (CRITICAL_SECTION*)__dm->malloc(sizeof(CRITICAL_SECTION), DYNAMIC_MANAGEMENT_DEBUG_DATA);
+    InitializeCriticalSection(_code_mutex);
+  }
+
+  if(!_internal_variables_list){
+    _internal_variables_list = __dm->new_class_dbg<std::set<comparison_variant>>(DYNAMIC_MANAGEMENT_DEBUG_DATA);
+
+    lua_State* _tmpstate = NULL;
+    variant* _gvar = NULL;
+
+{ // enclosure for using goto
+    _tmpstate = newstate();
+    if(!_tmpstate)
+      goto skip_to_clean;
+
+    luaL_loadstring(_tmpstate, "");
+    luaL_openlibs(_tmpstate);
+
+    core _lc = as_lua_api_core(_tmpstate);
+    lua_pushglobaltable(_tmpstate);
+
+    variant* _gvar = to_variant(&_lc, -1);
+    if(_gvar->get_type() != I_table_var::get_static_lua_type())
+      goto skip_to_clean;
+
+    table_var* _tgvar = dynamic_cast<table_var*>(_gvar);
+    const I_variant** _gkey_list = _tgvar->get_keys();
+    for(int i = 0; _gkey_list[i]; i++){
+      const I_variant* _key = _gkey_list[i];
+      _internal_variables_list->insert(_key);
+    }
+} // enclosure closing
+
+    skip_to_clean:{}
+    if(_gvar)
+      cpplua_delete_variant(_gvar);
+
+    if(_tmpstate)
+      lua_close(_tmpstate);
+  }
+}
+
+static void _code_deinitiate(){
+  if(_code_mutex){
+    DeleteCriticalSection(_code_mutex);
+    __dm->free(_code_mutex, DYNAMIC_MANAGEMENT_DEBUG_DATA);
+    _code_mutex = NULL;
+  }
+
+  if(_internal_variables_list){
+    __dm->delete_class_dbg(_internal_variables_list, DYNAMIC_MANAGEMENT_DEBUG_DATA);
+    _internal_variables_list = NULL;
+  }
+}
+
+
+void _lock_code(){
+#if (_WIN64) | (_WIN32)
+  EnterCriticalSection(_code_mutex);
+#endif
+}
+
+void _unlock_code(){
+#if (_WIN64) | (_WIN32)
+  LeaveCriticalSection(_code_mutex);
+#endif
+}
 
 
 // MARK: lua::debug::variable_watcher
 variable_watcher::variable_watcher(lua_State* state){
+  _code_initiate();
+
   _logger = get_std_logger();
   _state = state;
 
@@ -126,6 +219,7 @@ bool variable_watcher::fetch_current_function_variables(){
 
 
 bool variable_watcher::fetch_global_table_data(){
+  _lock_code();
   _lock_state();
   _clear_variable_data();
 
@@ -134,18 +228,31 @@ bool variable_watcher::fetch_global_table_data(){
   iterate_table(_state, -1, [](const core* lc, int key_stack_idx, int value_stack_idx, int iter_idx, void* cb_data){
     variable_watcher* _this = (variable_watcher*)cb_data;
     lua_State* _state = (lua_State*)lc->istate;
+    variant* _key_data;
 
-    variant* _key_data = to_variant(_state, key_stack_idx);
-    auto _iter = _this->_global_ignore_variables.find(_key_data);
-    if(_iter == _this->_global_ignore_variables.end()){
-      _variable_data* _vdata = __dm->new_class_dbg<_variable_data>(DYNAMIC_MANAGEMENT_DEBUG_DATA);
-      _vdata->var_name = _key_data->to_string();
-      _vdata->var_data = to_variant(_state, value_stack_idx);
-      _vdata->lua_type = lua_type(_state, value_stack_idx);
+{ // enclosure for using goto
+    _key_data = to_variant(_state, key_stack_idx);
 
-      _this->_vdata_list.insert(_this->_vdata_list.end(), _vdata);
-      _this->_vdata_map[_vdata->var_name] = _vdata;
+    if(_this->_ignore_internal_variables){
+      auto _iter_internal = _internal_variables_list->find(_key_data);
+      if(_iter_internal != _internal_variables_list->end())
+        goto skip_to_clean;
     }
+
+    auto _iter_gvar = _this->_global_ignore_variables.find(_key_data);
+    if(_iter_gvar != _this->_global_ignore_variables.end())
+      goto skip_to_clean;
+
+    _variable_data* _vdata = __dm->new_class_dbg<_variable_data>(DYNAMIC_MANAGEMENT_DEBUG_DATA);
+    _vdata->var_name = _key_data->to_string();
+    _vdata->var_data = to_variant(_state, value_stack_idx);
+    _vdata->lua_type = lua_type(_state, value_stack_idx);
+
+    _this->_vdata_list.insert(_this->_vdata_list.end(), _vdata);
+    _this->_vdata_map[_vdata->var_name] = _vdata;
+} // enclosure closing
+
+    skip_to_clean:{}
 
     cpplua_delete_variant(_key_data);
   }, this);
@@ -153,6 +260,7 @@ bool variable_watcher::fetch_global_table_data(){
   lua_pop(_state, 1);
 
   _unlock_state();
+  _unlock_code();
   return true;
 }
 
@@ -175,6 +283,22 @@ void variable_watcher::update_global_table_ignore(){
 
   lua_pop(_state, 1);
   _unlock_state();
+}
+
+void variable_watcher::clear_global_table_ignore(){
+  _lock_object();
+  _global_ignore_variables.clear();
+
+  _unlock_object();
+}
+
+
+void variable_watcher::ignore_internal_variables(bool flag){
+  _ignore_internal_variables = flag;
+}
+
+bool variable_watcher::is_ignore_internal_variables() const{
+  return _ignore_internal_variables;
 }
 
 
