@@ -768,6 +768,7 @@ namespace lua{
 
   // MARK: comparison_variant
 
+  // NOTE: do not use this for parameter between DLL and client function.
   class comparison_variant{
     private:
       variant* _this_var;

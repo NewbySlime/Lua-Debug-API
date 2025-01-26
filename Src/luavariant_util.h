@@ -10,7 +10,7 @@ namespace lua{
   // This will not pop the value.
   // WARN: Do not forget to delete returned object using cpplua_delete_variant() or I_variant_util::delete_variant().
   variant* to_variant(const lua::api::core* lua_core, int stack_idx);
-  // This will not pop the value.
+  // Get Global table as variant object.
   // WARN: Do not forget to delete returned object using cpplua_delete_variant() or I_variant_util::delete_variant().
   variant* to_variant_fglobal(const lua::api::core* lua_core, const char* global_name);
   // Pointer value (in lua) parsed to string variant.

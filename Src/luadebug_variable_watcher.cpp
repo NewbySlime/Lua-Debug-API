@@ -10,6 +10,7 @@
 #include "luautility.h"
 #include "luavariant_util.h"
 #include "std_logger.h"
+#include "string_util.h"
 
 #if (_WIN64) | (_WIN32)
 #include "Windows.h"
@@ -162,8 +163,52 @@ void variable_watcher::_unlock_state() const{
 }
 
 
+I_variant* variable_watcher::_get_variable_value(int idx) const{
+  I_variant* _result = NULL;
+  _lock_object();
+  if(idx < 0 || idx >= _vdata_list.size())
+    goto skip_to_return;
+
+  _result = _vdata_list[idx]->var_data;
+  
+  skip_to_return:{}
+  _unlock_object();
+  return _result;
+}
+
+I_variant* variable_watcher::_get_variable_value(const I_variant* key) const{
+  I_variant* _result = NULL;
+  _lock_object();
+  auto _iter = _vdata_map.find(key);
+  if(_iter == _vdata_map.end())
+    goto skip_to_return;
+
+  _result = _iter->second->var_data;
+
+  skip_to_return:{}
+  _unlock_object();
+  return _result;
+}
+
+
+void variable_watcher::_set_last_error(const I_variant* err_obj, int err_code){
+  _clear_last_error();
+  
+  _current_error = __dm->new_class_dbg<error_var>(DYNAMIC_MANAGEMENT_DEBUG_DATA, err_obj, err_code);
+}
+
+void variable_watcher::_clear_last_error(){
+  if(!_current_error)
+    return;
+
+  __dm->delete_class_dbg(_current_error, DYNAMIC_MANAGEMENT_DEBUG_DATA);
+  _current_error = NULL;
+}
+
+
 void variable_watcher::_clear_variable_data(){
   for(_variable_data* _data: _vdata_list){
+    cpplua_delete_variant(_data->var_key);
     cpplua_delete_variant(_data->var_data);
     __dm->delete_class_dbg(_data, DYNAMIC_MANAGEMENT_DEBUG_DATA);
   }
@@ -172,100 +217,31 @@ void variable_watcher::_clear_variable_data(){
   _vdata_map.clear();
 }
 
+void variable_watcher::_clear_local_variable_data(){
+  for(auto _pair: _vlocaldata_map)
+    __dm->delete_class_dbg(_pair.second, DYNAMIC_MANAGEMENT_DEBUG_DATA);
 
-bool variable_watcher::fetch_current_function_variables(){
-  bool _result = true;
-  lua_Debug* _debug_data = (lua_Debug*)__dm->malloc(sizeof(lua_Debug), DYNAMIC_MANAGEMENT_DEBUG_DATA);
+  _vlocaldata_map.clear();
+  _current_local_idx = -1;
+}
 
-  _lock_state();
-{ // enclosure for using gotos
-  if(!lua_getstack(_state, 0, _debug_data)){
-    if(_logger)
-      _logger->print_error("[variable_watcher] Cannot get current function stack info.\n");
-
-    _result = false;
-    goto cleanup_label;
-  }
-
+void variable_watcher::_clear_object(){
   _clear_variable_data();
-
-  int i = 0;
-  while(true){
-    const char* _var_name_str = lua_getlocal(_state, _debug_data, i+1);
-    if(!_var_name_str)
-      break;
-
-    _variable_data* _vdata = __dm->new_class_dbg<_variable_data>(DYNAMIC_MANAGEMENT_DEBUG_DATA);
-    _vdata->var_name = _var_name_str;
-    _vdata->var_data = to_variant(_state, -1);
-    _vdata->lua_type = lua_type(_state, -1);
-
-    lua_pop(_state, 1);
-
-    _vdata_list.insert(_vdata_list.end(), _vdata);
-    _vdata_map[_var_name_str] = _vdata;
-
-    i++;
-  }
-} // enclosure closing
-
-  cleanup_label:{
-    __dm->free(_debug_data, DYNAMIC_MANAGEMENT_DEBUG_DATA);
-  }
-
-  _unlock_state();
-  return _result;
+  _clear_last_error();
 }
 
 
-bool variable_watcher::fetch_global_table_data(){
-  _lock_code();
-  _lock_state();
-  _clear_variable_data();
-
-  lua_pushglobaltable(_state);
-
-  iterate_table(_state, -1, [](const core* lc, int key_stack_idx, int value_stack_idx, int iter_idx, void* cb_data){
-    variable_watcher* _this = (variable_watcher*)cb_data;
-    lua_State* _state = (lua_State*)lc->istate;
-    variant* _key_data;
-
-{ // enclosure for using goto
-    _key_data = to_variant(_state, key_stack_idx);
-
-    if(_this->_ignore_internal_variables){
-      auto _iter_internal = _internal_variables_list->find(_key_data);
-      if(_iter_internal != _internal_variables_list->end())
-        goto skip_to_clean;
-    }
-
-    auto _iter_gvar = _this->_global_ignore_variables.find(_key_data);
-    if(_iter_gvar != _this->_global_ignore_variables.end())
-      goto skip_to_clean;
-
-    _variable_data* _vdata = __dm->new_class_dbg<_variable_data>(DYNAMIC_MANAGEMENT_DEBUG_DATA);
-    _vdata->var_name = _key_data->to_string();
-    _vdata->var_data = to_variant(_state, value_stack_idx);
-    _vdata->lua_type = lua_type(_state, value_stack_idx);
-
-    _this->_vdata_list.insert(_this->_vdata_list.end(), _vdata);
-    _this->_vdata_map[_vdata->var_name] = _vdata;
-} // enclosure closing
-
-    skip_to_clean:{}
-
-    cpplua_delete_variant(_key_data);
-  }, this);
-
-  lua_pop(_state, 1);
-
-  _unlock_state();
-  _unlock_code();
-  return true;
+void variable_watcher::lock_object() const{
+  _lock_object();
 }
 
-void variable_watcher::update_global_table_ignore(){
-  _lock_state();
+void variable_watcher::unlock_object() const{
+  _unlock_object();
+}
+
+
+void variable_watcher::update_global_ignore(){
+  _unlock_state();
   _global_ignore_variables.clear();
 
   lua_pushglobaltable(_state);
@@ -285,11 +261,103 @@ void variable_watcher::update_global_table_ignore(){
   _unlock_state();
 }
 
-void variable_watcher::clear_global_table_ignore(){
+void variable_watcher::clear_global_ignore(){
   _lock_object();
   _global_ignore_variables.clear();
 
   _unlock_object();
+}
+
+
+bool variable_watcher::update_global_variables(){
+  _lock_state();
+  _clear_variable_data();
+
+  lua_pushglobaltable(_state);
+
+  iterate_table(_state, -1, [](const core* lc, int key_stack_idx, int value_stack_idx, int iter_idx, void* cb_data){
+    variable_watcher* _this = (variable_watcher*)cb_data;
+    lua_State* _state = (lua_State*)lc->istate;
+
+    variant* _key_data = to_variant(_state, key_stack_idx);
+    if(_this->_ignore_internal_variables){
+      auto _internal_iter = _internal_variables_list->find(_key_data);
+      if(_internal_iter != _internal_variables_list->end())
+        return;
+    }
+
+    auto _global_iter = _this->_global_ignore_variables.find(_key_data);
+    if(_global_iter != _this->_global_ignore_variables.end())
+      return;
+
+    _variable_data* _vdata = __dm->new_class_dbg<_variable_data>(DYNAMIC_MANAGEMENT_DEBUG_DATA);
+    _vdata->var_key = _key_data;
+    _vdata->var_data = to_variant(_state, value_stack_idx);
+    _vdata->lua_type = lua_type(_state, value_stack_idx);
+
+    _this->_vdata_list.insert(_this->_vdata_list.end(), _vdata);
+    _this->_vdata_map[_key_data] = _vdata;
+  }, this);
+
+  lua_pop(_state, 1);
+
+  _unlock_state();
+  return true;
+}
+
+bool variable_watcher::update_local_variables(int stack_idx){
+  bool _result = true;
+  lua_Debug* _debug_data = (lua_Debug*)__dm->malloc(sizeof(lua_Debug), DYNAMIC_MANAGEMENT_DEBUG_DATA);
+
+  _lock_state();
+
+{ // enclosure for using gotos
+  if(!lua_getstack(_state, stack_idx, _debug_data)){
+    if(_logger)
+      _logger->print_error("[variable_watcher] Cannot get current function stack info.\n");
+
+    _result = false;
+    goto cleanup_label;
+  }
+
+  _clear_variable_data();
+  _clear_local_variable_data();
+
+  _current_local_idx = stack_idx;
+
+  int i = 1;
+  while(true){
+    const char* _var_name_str = lua_getlocal(_state, _debug_data, i);
+    if(!_var_name_str)
+      break;
+
+    string_var _key_str = _var_name_str;
+    variant* _key_var = cpplua_create_var_copy(&_key_str);
+
+    _variable_data* _vdata = __dm->new_class_dbg<_variable_data>(DYNAMIC_MANAGEMENT_DEBUG_DATA);
+    _vdata->var_key = _key_var;
+    _vdata->var_data = to_variant(_state, -1);
+    _vdata->lua_type = lua_type(_state, -1);
+
+    _local_variable_data* _vlocal_data = __dm->new_class_dbg<_local_variable_data>(DYNAMIC_MANAGEMENT_DEBUG_DATA);
+    _vlocal_data->local_idx = i;
+
+    lua_pop(_state, 1);
+
+    _vdata_list.insert(_vdata_list.end(), _vdata);
+    _vdata_map[_key_var] = _vdata;
+    _vlocaldata_map[_key_var] = _vlocal_data;
+
+    i++;
+  }
+} // enclosure closing
+
+  cleanup_label:{
+    __dm->free(_debug_data, DYNAMIC_MANAGEMENT_DEBUG_DATA);
+  }
+
+  _unlock_state();
+  return _result;
 }
 
 
@@ -310,48 +378,34 @@ int variable_watcher::get_variable_count() const{
   return _result;
 }
 
-
-const char* variable_watcher::get_variable_name(int idx) const{
-  const char* _result = NULL;
+const I_variant* variable_watcher::get_variable_key(int idx) const{
+  const I_variant* _result = NULL;
   _lock_object();
   if(idx < 0 || idx >= _vdata_list.size())
     goto skip_to_return;
 
-  _result = _vdata_list[idx]->var_name.c_str();
+  _result = _vdata_list[idx]->var_key;
 
   skip_to_return:{}
   _unlock_object();
   return _result;
 }
 
-
-I_variant* variable_watcher::get_variable(int idx) const{
-  I_variant* _result = NULL;
-  _lock_object();
-  if(idx < 0 || idx >= _vdata_list.size())
-    goto skip_to_return;
-
-  _result = _vdata_list[idx]->var_data;
-  
-  skip_to_return:{}
-  _unlock_object();
-  return _result;
+I_variant* variable_watcher::get_variable_value_mutable(int idx){
+  return _get_variable_value(idx);
 }
 
-I_variant* variable_watcher::get_variable(const char* name) const{
-  I_variant* _result = NULL;
-  _lock_object();
-  auto _iter = _vdata_map.find(name);
-  if(_iter == _vdata_map.end())
-    goto skip_to_return;
-
-  _result = _iter->second->var_data;
-
-  skip_to_return:{}
-  _unlock_object();
-  return _result;
+I_variant* variable_watcher::get_variable_value_mutable(const I_variant* key){
+  return _get_variable_value(key);
 }
 
+const I_variant* variable_watcher::get_variable_value(int idx) const{
+  return _get_variable_value(idx);
+}
+
+const I_variant* variable_watcher::get_variable_value(const I_variant* key) const{
+  return _get_variable_value(key);
+}
 
 int variable_watcher::get_variable_type(int idx) const{
   int _result = LUA_TNIL;
@@ -366,10 +420,10 @@ int variable_watcher::get_variable_type(int idx) const{
   return _result;
 }
 
-int variable_watcher::get_variable_type(const char* name) const{
+int variable_watcher::get_variable_type(const I_variant* key) const{
   int _result = LUA_TNIL;
   _lock_object();
-  auto _iter = _vdata_map.find(name);
+  auto _iter = _vdata_map.find(key);
   if(_iter == _vdata_map.end())
     goto skip_to_return;
 
@@ -378,6 +432,91 @@ int variable_watcher::get_variable_type(const char* name) const{
   skip_to_return:{}
   _unlock_object();
   return _result;
+}
+
+
+bool variable_watcher::set_global_variable(const I_variant* key, const I_variant* value){
+  _lock_state();
+  core _lc = as_lua_api_core(_state);
+  
+  lua_pushglobaltable(_state);
+
+  key->push_to_stack(&_lc);
+  value->push_to_stack(&_lc);
+  lua_settable(_state, -3);
+
+  // pops global table
+  lua_pop(_state, 1);
+
+  _unlock_state();
+
+  return true;
+}
+
+bool variable_watcher::set_local_variable(const I_variant* key, const I_variant* value){
+  bool _result = true;
+  lua_Debug* _debug_data = (lua_Debug*)__dm->malloc(sizeof(lua_Debug), DYNAMIC_MANAGEMENT_DEBUG_DATA);
+
+  _lock_state();
+  core _lc = as_lua_api_core(_state);
+
+{ // enclosure for using gotos
+  // case: not yet updated
+  if(_current_local_idx < 0){
+    string_var _err_str = "[variable_watcher] Cannot fetch stack data; not in local variable mode?";
+    _set_last_error(&_err_str, ERROR_INVALID_FUNCTION);
+
+    _result = false;
+    goto cleanup_label;
+  }
+
+  if(!lua_getstack(_state, _current_local_idx, _debug_data)){
+    string_var _err_str = "[variable_watcher] Cannot get current function stack info.\n";
+    _set_last_error(&_err_str, ERROR_INVALID_PARAMETER);
+
+    _result = false;
+    goto cleanup_label;
+  }
+
+  auto _iter = _vlocaldata_map.find(key);
+  if(_iter == _vlocaldata_map.end()){
+    string_store _var_str; key->to_string(&_var_str);
+    string_var _err_str = format_str("[variable_watcher] Cannot find '%s' local variable in stack idx %d.", _var_str.data.c_str(), _current_local_idx);
+    _set_last_error(&_err_str, ERROR_NOT_FOUND);
+
+    _result = false;
+    goto cleanup_label;
+  }
+
+  value->push_to_stack(&_lc);
+  const char* _var_name = lua_setlocal(_state, _debug_data, _iter->second->local_idx);
+  if(!_var_name){
+    string_store _var_str; key->to_string(&_var_str);
+    string_var _err_str = format_str("[variable_watcher] Cannot set '%s' variable in stack idx %d.", _var_str.data.c_str(), _current_local_idx);
+    _set_last_error(&_err_str, ERROR_INVALID_PARAMETER);
+
+    _result = false;
+    goto cleanup_label;
+  }
+
+} // enclosure closing
+
+  cleanup_label:{
+    __dm->free(_debug_data, DYNAMIC_MANAGEMENT_DEBUG_DATA);
+  }
+
+  _unlock_state();
+  return _result;
+}
+
+
+int variable_watcher::get_current_local_stack_idx() const{
+  return _current_local_idx;
+}
+
+
+const I_error_var* variable_watcher::get_last_error() const{
+  return _current_error;
 }
 
 

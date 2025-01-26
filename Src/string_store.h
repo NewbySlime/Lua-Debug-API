@@ -17,6 +17,10 @@ class I_string_store{
 /// @brief Helper class for storing a std::string that is specific to current compilation, with functions redirected by interface functions.
 class string_store: public I_string_store{
   public:
+    string_store(){}
+    string_store(const char* cstr);
+    string_store(const std::string& str);
+
     std::string data;
 
     void append(const char* data) override;
