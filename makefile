@@ -171,7 +171,7 @@ endef
 # MARK: Fn delete_objects
 # Arg 1: File to delete
 define delete_objects
-	DEL $(1)
+	rm $(1)
 endef
 
 

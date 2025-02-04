@@ -327,6 +327,7 @@ void execution_flow::step_execution(step_type st){
     WaitForSingleObject(_self_pause_event, INFINITE);
   }
 
+  _do_block = true;
   _stepping_type = st;
   switch(st){
     break; case step_type::st_over:{
