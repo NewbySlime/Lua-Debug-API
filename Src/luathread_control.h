@@ -8,11 +8,15 @@
 
 #if (_WIN64) || (_WIN32)
 #include "Windows.h"
+#elif (__linux)
+#include "pthread.h"
 #endif
 
 #include "map"
 #include "memory"
+#include "mutex"
 #include "set"
+#include "thread"
 
 
 #if !((_WIN64) || (_WIN32))
@@ -39,16 +43,26 @@ namespace lua{
       // Blocking until the thread is stopped.
       virtual void stop_running() = 0;
       virtual void signal_stop() = 0;
-      virtual bool wait_for_thread_stop(unsigned long wait_ms = INFINITE) = 0;
+
+      // DEPRECATED
+      // virtual bool wait_for_thread_stop(unsigned long wait_ms = INFINITE) = 0;
 
       // Called when the thread is signalled to stop.
       virtual bool is_stop_signal() const = 0;
       virtual bool is_stopped() const = 0;
 
-      virtual void pause() = 0;
-      virtual void resume() = 0;
-      virtual bool is_paused() = 0;
+      // DEPRECATED
+      // virtual void pause() = 0;
+      // DEPRECATED
+      // virtual void resume() = 0;
+      // DEPRECATED
+      // virtual bool is_paused() = 0;
 
+      virtual void join() = 0;
+      virtual void try_join(unsigned long wait_ms) = 0;
+      virtual bool joinable() = 0;
+      virtual void detach() = 0; 
+      
       virtual unsigned long get_thread_id() const = 0;
 
       virtual void* get_lua_state_interface() const = 0;
@@ -98,18 +112,18 @@ namespace lua{
       lua::debug::execution_flow* _exec_flow;
       lua::debug::hook_handler* _hook;
 
+      // Use kernel types, std::thread cannot be copied
 #if (_WIN64) || (_WIN32)
       HANDLE _thread_handle;
-      DWORD _suspend_count = 0;
-
-      CRITICAL_SECTION _object_mutex;
+#elif (__linux)
+      pthread_t _thread_id;
 #endif
 
-      void _lock_object();
-      void _unlock_object();
+      std::recursive_mutex _object_mutex;
 
       void _signal_stop();
-      bool _wait_for_thread_stop(unsigned long wait_ms);
+
+      void _init_class(lua_State* lstate);
 
       void _hook_cb(lua_State* state);
       static void _hook_cb_static(const lua::api::core* lc, void* cbdata);
@@ -117,19 +131,21 @@ namespace lua{
     public:
 #if (_WIN64) || (_WIN32)
       thread_handle(HANDLE thread_handle, lua_State* lstate);
+#elif (__linux)
+      // TODO linux
 #endif
       ~thread_handle();
 
       void stop_running() override;
       void signal_stop() override;
-      bool wait_for_thread_stop(unsigned long wait_ms) override;
 
       bool is_stop_signal() const override;
       bool is_stopped() const override;
 
-      void pause() override;
-      void resume() override;
-      bool is_paused() override;
+      void join() override;
+      void try_join(unsigned long wait_ms) override;
+      bool joinable() override;
+      void detach() override;
 
       unsigned long get_thread_id() const override;
 
@@ -168,8 +184,12 @@ namespace lua{
 
 #if (_WIN64) || (_WIN32)
         HANDLE thread_handle;
-        HANDLE init_event;
+#elif (__linux)
+        pthread_t thread_handle;
 #endif
+
+        std::condition_variable init_cond;
+        std::mutex init_mutex;
       };
 
       I_logger* _logger;
@@ -179,15 +199,16 @@ namespace lua{
 
       lua_State* _state;
 
-#if (_WIN64) || (_WIN32)
-      CRITICAL_SECTION _object_mutex;
-      CRITICAL_SECTION* _object_mutex_ptr;
+      std::recursive_mutex _object_mutex;
+      std::recursive_mutex* _object_mutex_ptr;
 
+#if (_WIN64) || (_WIN32)
       static DWORD WINAPI __thread_entry_point(LPVOID data);
+#elif (__linux)
+      static void* __thread_entry_point(void* data);
 #endif
 
-      void _lock_object() const;
-      void _unlock_object() const;
+      static void __thread_entry_point_generalize(_t_entry_point_data* data);
 
       void _stop_all_execution();
 

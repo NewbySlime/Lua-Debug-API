@@ -1,6 +1,7 @@
 #ifndef LUAAPI_COMPILATION_CONTEXT_HEADER
 #define LUAAPI_COMPILATION_CONTEXT_HEADER
 
+#include "defines.h"
 #include "library_linking.h"
 #include "luaincludes.h"
 

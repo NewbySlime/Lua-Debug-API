@@ -1,6 +1,7 @@
 #ifndef LUAAPI_THREAD_HEADER
 #define LUAAPI_THREAD_HEADER
 
+#include "defines.h"
 #include "library_linking.h"
 #include "luathread_control.h"
 #include "luathread_util.h"

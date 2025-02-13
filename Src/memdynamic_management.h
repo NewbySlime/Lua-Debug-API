@@ -1,6 +1,7 @@
 #ifndef MEMDYNAMIC_MANAGEMENT_HEADER
 #define MEMDYNAMIC_MANAGEMENT_HEADER
 
+#include "defines.h"
 #include "library_linking.h"
 #include "macro_helper.h"
 #include "stddef.h"
@@ -97,7 +98,7 @@ namespace memory{
           _record.debug_data = dbg_data;
 
         this->_add_nested_record(&_record);
-        T_class* _result =  new T_class(args...);
+        T_class* _result = new T_class(args...);
         this->_remove_nested_record();
 
         return _result;

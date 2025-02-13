@@ -1,6 +1,7 @@
 #ifndef LUA_VARIANT_HEADER
 #define LUA_VARIANT_HEADER
 
+#include "defines.h"
 #include "I_logger.h"
 #include "library_linking.h"
 #include "luaincludes.h"

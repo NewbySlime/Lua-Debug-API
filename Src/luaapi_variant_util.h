@@ -1,6 +1,7 @@
 #ifndef LUAAPI_VARIANT_UTIL_HEADER
 #define LUAAPI_VARIANT_UTIL_HEADER
 
+#include "defines.h"
 #include "luavariant.h"
 #include "string_store.h"
 

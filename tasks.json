@@ -32,7 +32,7 @@
     {
       "label": "msvc-build-dll",
       "args": [
-        "vsdevcmd.bat && mingw32-make --directory=${workspaceFolder}\\Lua-Debug-API f_use_msvc proc_compile"
+        "vsdevcmd.bat && mingw32-make --directory=${workspaceFolder}\\Lua-Debug-API f_use_msvc f_use_del proc_compile"
       ],
       "problemMatcher": [],
       "group": {
@@ -43,7 +43,7 @@
     {
       "label": "msvc-build-dll-debug",
       "args": [
-        "vsdevcmd.bat && mingw32-make --directory=${workspaceFolder}\\Lua-Debug-API f_use_msvc f_as_debug proc_compile"
+        "vsdevcmd.bat && mingw32-make --directory=${workspaceFolder}\\Lua-Debug-API f_use_msvc f_use_del f_as_debug proc_compile"
       ],
       "problemMatcher": [],
       "group": {
@@ -76,7 +76,7 @@
     {
       "label": "msvc-build-unit-test",
       "args": [
-        "vsdevcmd.bat && mingw32-make --directory=${workspaceFolder}\\Lua-Debug-API f_use_msvc proc_unit_test"
+        "vsdevcmd.bat && mingw32-make --directory=${workspaceFolder}\\Lua-Debug-API f_use_msvc f_use_del proc_unit_test"
       ],
       "problemMatcher": [],
       "group": {
@@ -87,7 +87,7 @@
     {
       "label": "msvc-build-unit-test-debug",
       "args": [
-        "vsdevcmd.bat && mingw32-make --directory=${workspaceFolder}\\Lua-Debug-API f_use_msvc f_as_debug proc_unit_test"
+        "vsdevcmd.bat && mingw32-make --directory=${workspaceFolder}\\Lua-Debug-API f_use_msvc f_use_del f_as_debug proc_unit_test"
       ],
       "problemMatcher": [],
       "group": {

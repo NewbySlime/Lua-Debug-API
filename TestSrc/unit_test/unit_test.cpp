@@ -237,7 +237,7 @@ int main(){
   _rh1->run_code();
   _thread_ref = _rh1_tc->get_thread_handle(_rh1->get_main_thread_id());
   if(_thread_ref){
-    _thread_ref->get_interface()->wait_for_thread_stop();
+    _thread_ref->get_interface()->join();
     _rh1_tc->free_thread_handle(_thread_ref);
   }
   __check_stack_pos(&_rh1_lc, 0);
@@ -248,7 +248,7 @@ int main(){
   _rh2->run_code();
   _thread_ref = _rh2_tc->get_thread_handle(_rh2->get_main_thread_id());
   if(_thread_ref){
-    _thread_ref->get_interface()->wait_for_thread_stop();
+    _thread_ref->get_interface()->join();
     _rh2_tc->free_thread_handle(_thread_ref);
   }
   __check_stack_pos(&_rh2_lc, 0);
@@ -259,7 +259,7 @@ int main(){
   _rh3->run_code();
   _thread_ref = _rh3_tc->get_thread_handle(_rh3->get_main_thread_id());
   if(_thread_ref){
-    _thread_ref->get_interface()->wait_for_thread_stop();
+    _thread_ref->get_interface()->join();
     _rh3_tc->free_thread_handle(_thread_ref);
   }
   _rh3_lc.context->api_varutil->set_global(_rh3_lc.istate, "delay_process", _delay_program_func_var);
@@ -964,7 +964,7 @@ int main(){
 
   _thread_ref = _rh3_tc->get_thread_handle(_test_tid);
   if(_thread_ref){
-    _thread_ref->get_interface()->wait_for_thread_stop();
+    _thread_ref->get_interface()->join();
     _rh1_tc->free_thread_handle(_thread_ref);
   }
   __check_stack_pos(&_rh3_lc, 0);

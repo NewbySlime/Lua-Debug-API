@@ -1,6 +1,7 @@
 #ifndef LUAAPI_STACK_HEADER
 #define LUAAPI_STACK_HEADER
 
+#include "defines.h"
 #include "luaincludes.h"
 #include "luavariant.h"
 #include "library_linking.h"

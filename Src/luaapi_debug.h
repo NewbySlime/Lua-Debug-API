@@ -1,6 +1,7 @@
 #ifndef LUAAPI_DEBUG_HEADER
 #define LUAAPI_DEBUG_HEADER
 
+#include "defines.h"
 #include "luadebug_execution_flow.h"
 #include "luadebug_file_info.h"
 #include "luadebug_hook_handler.h"

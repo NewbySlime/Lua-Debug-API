@@ -1,6 +1,7 @@
 #ifndef LUADEBUG_FILE_INFO_HEADER
 #define LUADEBUG_FILE_INFO_HEADER
 
+#include "defines.h"
 #include "luaapi_core.h"
 #include "luaincludes.h"
 #include "luavariant.h"
