@@ -6,7 +6,9 @@
 using namespace memory;
 
 
-
+// TODO don't use this, use another memory tracker analysis tool, try use valgrind once linux can be used.
+// Dr Memory cannot be used for now in Windows 10 19045
+// https://github.com/DynamoRIO/drmemory/issues/2502
 // MARK: memtracker definition
 
 static void* _memtracker_allocator(size_t size, void* f_data){
