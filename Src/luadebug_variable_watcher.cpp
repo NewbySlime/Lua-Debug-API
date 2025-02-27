@@ -370,6 +370,12 @@ bool variable_watcher::is_ignore_internal_variables() const{
 }
 
 
+bool variable_watcher::is_internal_variables(const I_variant* key) const{
+  auto _iter = _internal_variables_list->find(key);
+  return _iter != _internal_variables_list->end();
+}
+
+
 int variable_watcher::get_variable_count() const{
   int _result;
   _lock_object();

@@ -55,10 +55,26 @@ static const I_dynamic_management* __dm = get_memory_manager();
 std_logger _default_logger = std_logger();
 const I_logger* _logger = &_default_logger;
 
+std::map<int, custom_variant_data>* _custom_variant_data_list = NULL;
 
-void _manual_code_initialize(){
+static void _code_init();
+static void _code_deinit();
+static destructor_helper _dh(_code_deinit);
+
+
+static void _code_init(){
   if(!__dm)
     __dm = get_memory_manager();
+
+  if(!_custom_variant_data_list)
+    _custom_variant_data_list = new std::map<int, custom_variant_data>();
+}
+
+static void _code_deinit(){
+  if(_custom_variant_data_list){
+    delete _custom_variant_data_list;
+    _custom_variant_data_list = NULL;
+  }
 }
 
 
@@ -75,12 +91,16 @@ void lua::set_default_logger(I_logger* logger){
 // MARK: variant def
 
 variant::variant(){
-  _manual_code_initialize();
+  _code_init();
 }
 
 
 int variant::get_type() const{
   return LUA_TNIL;
+}
+
+bool variant::is_type(int type) const{
+  return type == LUA_TNIL;
 }
 
 
@@ -221,6 +241,10 @@ int string_var::_compare_with(const variant* rhs) const{
 
 int string_var::get_type() const{
   return LUA_TSTRING;
+}
+
+bool string_var::is_type(int type) const{
+  return type == LUA_TSTRING;
 }
 
 
@@ -416,6 +440,10 @@ int number_var::get_type() const{
   return LUA_TNUMBER;
 }
 
+bool number_var::is_type(int type) const{
+  return type == LUA_TNUMBER;
+}
+
 
 bool number_var::from_state(const core* lc, int stack_idx){
   stack_idx = lc->context->api_stack->absindex(lc->istate, stack_idx);
@@ -594,6 +622,10 @@ int bool_var::_compare_with(const variant* rhs) const{
 
 int bool_var::get_type() const{
   return LUA_TBOOLEAN;
+}
+
+bool bool_var::is_type(int type) const{
+  return type == LUA_TBOOLEAN;
 }
 
 
@@ -1130,6 +1162,10 @@ int table_var::get_type() const{
   return LUA_TTABLE;
 }
 
+bool table_var::is_type(int type) const{
+  return type == LUA_TTABLE;
+}
+
 
 bool table_var::from_state(const core* lc, int stack_idx){
   stack_idx = lc->context->api_stack->absindex(lc->istate, stack_idx);
@@ -1396,6 +1432,9 @@ int lightuser_var::get_type() const{
   return LUA_TLIGHTUSERDATA;
 }
 
+bool lightuser_var::is_type(int type) const{
+  return type == LUA_TLIGHTUSERDATA;
+}
 
 
 bool lightuser_var::from_state(const core* lc, int stack_idx){
@@ -1656,6 +1695,10 @@ int function_var::_compare_with(const variant* rhs) const{
 
 int function_var::get_type() const{
   return LUA_TFUNCTION;
+}
+
+bool function_var::is_type(int type) const{
+  return type == LUA_TFUNCTION;
 }
 
 
@@ -2052,6 +2095,10 @@ int error_var::get_type() const{
   return LUA_TERROR;
 }
 
+bool error_var::is_type(int type) const{
+  return type == LUA_TERROR;
+}
+
 
 bool error_var::from_state(const core* lc, int stack_idx){
   stack_idx = lc->context->api_stack->absindex(lc->istate, stack_idx);
@@ -2165,6 +2212,10 @@ int object_var::_compare_with(const variant* rhs) const{
 
 int object_var::get_type() const{
   return LUA_TCPPOBJECT;
+}
+
+bool object_var::is_type(int type) const{
+  return type == LUA_TCPPOBJECT;
 }
 
 
@@ -2336,6 +2387,8 @@ const variant* comparison_variant::get_comparison_data() const{
 // MARK: Static functions
 
 lua::variant* cpplua_create_var_copy(const lua::I_variant* data){
+  _code_init();
+
   switch(data->get_type()){
     break; case string_var::get_static_lua_type():
       return __dm->new_class_dbg<string_var>(DYNAMIC_MANAGEMENT_DEBUG_DATA, dynamic_cast<const I_string_var*>(data));
@@ -2361,9 +2414,46 @@ lua::variant* cpplua_create_var_copy(const lua::I_variant* data){
     break; case function_var::get_static_lua_type():
       return __dm->new_class_dbg<function_var>(DYNAMIC_MANAGEMENT_DEBUG_DATA, dynamic_cast<const I_function_var*>(data));
 
-    break; default:
-      return __dm->new_class_dbg<nil_var>(DYNAMIC_MANAGEMENT_DEBUG_DATA);
+    break; default:{
+      auto _iter = _custom_variant_data_list->find(data->get_type());
+      if(_iter == _custom_variant_data_list->end())
+        break;
+      
+      return _iter->second.copy_function(data, __dm);
+    }
   }
+
+  return __dm->new_class_dbg<nil_var>(DYNAMIC_MANAGEMENT_DEBUG_DATA);
+}
+
+
+bool cpplua_register_custom_type(int type, const custom_variant_data* data){
+  _code_init();
+
+  auto _iter = _custom_variant_data_list->find(type);
+  if(_iter != _custom_variant_data_list->end())
+    return false;
+
+  _custom_variant_data_list->operator[](type) = *data;
+  return true;
+}
+
+bool cpplua_remove_custom_type(int type){
+  _code_init();
+
+  auto _iter = _custom_variant_data_list->find(type);
+  if(_iter == _custom_variant_data_list->end())
+    return false;
+
+  _custom_variant_data_list->erase(_iter);
+  return true;
+}
+
+bool cpplua_has_custom_type(int type){
+  _code_init();
+
+  auto _iter = _custom_variant_data_list->find(type);
+  return _iter != _custom_variant_data_list->end();
 }
 
 
