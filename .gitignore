@@ -1,6 +1,7 @@
 *.o
 /log
 /.vscode
+/.ignore
 /*.exp
 /*.ilk
 /*.lib

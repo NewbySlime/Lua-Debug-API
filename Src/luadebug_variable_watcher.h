@@ -40,6 +40,7 @@ namespace lua::debug{
       virtual void ignore_internal_variables(bool flag) = 0;
       virtual bool is_ignore_internal_variables() const = 0;
 
+      virtual bool is_internal_variables(const lua::I_variant* key) const = 0;
 
       // All getter function uses stored variable data updated using update functions.
 
@@ -135,6 +136,8 @@ namespace lua::debug{
       
       void ignore_internal_variables(bool flag) override;
       bool is_ignore_internal_variables() const override;
+
+      bool is_internal_variables(const lua::I_variant* key) const override;
 
       int get_variable_count() const override;
       const lua::I_variant* get_variable_key(int idx) const override;

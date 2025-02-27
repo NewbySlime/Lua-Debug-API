@@ -9,6 +9,7 @@
 #include "luaI_object.h"
 #include "luavalue_ref.h"
 #include "macro_helper.h"
+#include "memdynamic_management.h"
 #include "string_store.h"
 
 #include "map"
@@ -25,6 +26,9 @@
 
 #define LUA_FUNCVAR_GET_UPVALUE(idx) lua_upvalueindex(LUA_FUNCVAR_START_UPVALUE_IDX+idx)
 
+
+// NOTE: creating custom variant is possible, though keep in mind that every compilation file have to use the same format or interface and register the custom types in cpplua_register_custom_variant function.
+// If when a variant needs to be passed to a code that does not support the custom types, you have to convert it to a Lua value that has metatables and/or a reference value such as function or tables. It is recommended to use object_var instead of custom variants.
 
 // This code will be statically bind to the compilation file
 // If a code returns an interface (I_xx) create a copy with using statically linked compilation function if the code that returns comes from dynamic library
@@ -76,6 +80,7 @@ namespace lua{
 
       virtual int get_type() const = 0;
       constexpr static int get_static_lua_type(){return LUA_TNIL;}
+      virtual bool is_type(int type) const = 0;
 
       virtual void push_to_stack(const lua::api::core* lua_core) const = 0;
       
@@ -91,6 +96,7 @@ namespace lua{
       variant();
 
       int get_type() const override;
+      bool is_type(int type) const override;
 
       // Unused, using virtual mapping to get data from Lua might create confusion to programmers. Instead, they have to get Lua variable by independent variant constructor (this way, programmers knew what they expected). Or use lua::to_variant() to automaticaly get data from Lua without knowing what type of the data (automatically handled by the function).
       // virtual bool from_state(const lua::api::core* lua_core, int stack_index);
@@ -169,6 +175,7 @@ namespace lua{
       ~string_var();
 
       int get_type() const override;
+      bool is_type(int type) const override;
 
       bool from_state(const lua::api::core* lua_core, int stack_idx) override;
       void push_to_stack(const lua::api::core* lua_core) const override;
@@ -236,6 +243,7 @@ namespace lua{
       number_var(const lua::api::core* lua_core, int stack_idx);
 
       int get_type() const override;
+      bool is_type(int type) const override;
       
       bool from_state(const lua::api::core* lua_core, int stack_idx) override;
       void push_to_stack(const lua::api::core* lua_core) const override;
@@ -300,6 +308,7 @@ namespace lua{
       bool_var(const lua::api::core* lua_core, int stack_idx);
 
       int get_type() const override;
+      bool is_type(int type) const override;
       
       bool from_state(const lua::api::core* lua_core, int stack_idx) override;
       void push_to_stack(const lua::api::core* lua_core) const override;
@@ -345,7 +354,7 @@ namespace lua{
       // This will create a new variant, free the variant with free_variant(). Returns NULL if cannot find value.
       // The returned value is not a referenced value from a storage due to in a case of this object uses reference to Lua variables.
       virtual I_variant* get_value(const I_variant* key) = 0;
-      // This will create a new variant, free the variant with free_variant(). Returns nil_var if cannot find value.
+      // This will create a new variant, free the variant with free_variant(). Returns NULL if cannot find value.
       // The returned value is not a referenced value from a storage due to in a case of this object uses reference to Lua variables.
       virtual const I_variant* get_value(const I_variant* key) const = 0;
 
@@ -429,6 +438,7 @@ namespace lua{
       ~table_var();
 
       int get_type() const override;
+      bool is_type(int type) const override;
 
       bool from_state(const lua::api::core* lua_core, int stack_idx) override;
       bool from_state_copy(const lua::api::core* lua_core, int stack_idx) override;
@@ -498,6 +508,7 @@ namespace lua{
       lightuser_var(const lua::api::core* lua_core, int stack_idx);
 
       int get_type() const override;
+      bool is_type(int type) const override;
 
       bool from_state(const lua::api::core* lua_core, int stack_idx) override;
       void push_to_stack(const lua::api::core* lua_core) const override;
@@ -616,6 +627,7 @@ namespace lua{
       ~function_var();
 
       int get_type() const override;
+      bool is_type(int type) const override;
       
       bool from_state(const lua::api::core* lua_core, int stack_idx) override;
       bool from_state_copy(const lua::api::core* lua_core, int stack_idx) override;
@@ -686,6 +698,7 @@ namespace lua{
       ~error_var();
 
       int get_type() const override;
+      bool is_type(int type) const override;
 
       bool from_state(const lua::api::core* lua_core, int stack_idx) override;
       void push_to_stack(const lua::api::core* lua_core) const override;
@@ -748,6 +761,7 @@ namespace lua{
       ~object_var();
       
       int get_type() const override;
+      bool is_type(int type) const override;
 
       bool from_state(const lua::api::core* lua_core, int stack_idx);
       bool from_object_reference(const lua::api::core* lua_core, I_object* obj);
@@ -801,7 +815,17 @@ namespace lua{
 
 // MARK: Static functions
 
+typedef lua::variant* (*custom_variant_copy_function)(const lua::I_variant* var, const ::memory::I_dynamic_management* dm);
+struct custom_variant_data{
+  custom_variant_copy_function copy_function;
+};
+
 lua::variant* cpplua_create_var_copy(const lua::I_variant* data);
+
+
+bool cpplua_register_custom_type(int type, const custom_variant_data* data);
+bool cpplua_remove_custom_type(int type);
+bool cpplua_has_custom_type(int type);
 
 
 
