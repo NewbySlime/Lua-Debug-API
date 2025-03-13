@@ -14,6 +14,7 @@
 
 #include "map"
 #include "string"
+#include "memory"
 
 
 #define LUA_TERROR 0x101
@@ -342,7 +343,8 @@ namespace lua{
       constexpr static int get_static_lua_type(){return LUA_TTABLE;}
 
       virtual bool from_state(const lua::api::core* lua_core, int stack_idx) = 0;
-      virtual bool from_state_copy(const lua::api::core* lua_core, int stack_idx) = 0;
+      // This will only creating a copy primitive values of Lua variable types.
+      virtual bool from_state_copy(const lua::api::core* lua_core, int stack_idx, bool recursive = true) = 0;
       virtual bool from_object(const I_object_var* obj) = 0;
       virtual void push_to_stack_copy(const lua::api::core* lua_core) const = 0;
 
@@ -365,7 +367,12 @@ namespace lua{
       // Remove table values.
       virtual void clear_table() = 0;
 
-      virtual void as_copy() = 0;
+      virtual size_t get_size() const = 0;
+
+      // Any values that has reference of itself will be ignored. Simply, any reference pointer that has been discovered will be ignored.
+      virtual void as_copy(bool recursive = true) = 0;
+      // Also removes any non-primitive values
+      virtual void remove_reference_values(bool recursive = true) = 0;
 
       virtual bool is_reference() const = 0;
       virtual const void* get_table_pointer() const = 0;
@@ -403,6 +410,9 @@ namespace lua{
 
       // used for creating copy from lua_State
       static void _fs_iter_cb(const lua::api::core* lua_context, int key_stack, int val_stack, int iter_idx, void* cb_data);
+      bool _from_state_copy(const lua::api::core* lc, int stack_idx, void* custom_data);
+
+      void _as_copy(void* custom_data);
 
       variant* _get_value_by_interface(const I_variant* key) const;
       void _set_value_by_interface(const I_variant* key, const I_variant* value);
@@ -413,6 +423,9 @@ namespace lua{
       void _set_value(const comparison_variant& comp_key, const variant* value);
       // If the state of the object is not using a copy, it will create a new copy first
       void _set_value(const I_variant* key, const I_variant* value);
+      // This will directly use the variant object as the value, instead of copying it first.
+      // WARN: DO NOT delete the value object once it is set to the table. Let the table decide its lifetime.
+      void _set_value_direct(const comparison_variant& comp_key, variant* value);
       bool _remove_value(const comparison_variant& comp_key);
       bool _remove_value(const I_variant* key);
 
@@ -421,6 +434,8 @@ namespace lua{
       void _update_keys_reg();
       // NOTE: only clears key datas, not deallocating memory used for key registry.
       void _clear_keys_reg();
+
+      static std::shared_ptr<table_var> _create_shared_ptr(table_var* obj);
 
     protected:
       int _compare_with(const variant* rhs) const override;
@@ -441,7 +456,7 @@ namespace lua{
       bool is_type(int type) const override;
 
       bool from_state(const lua::api::core* lua_core, int stack_idx) override;
-      bool from_state_copy(const lua::api::core* lua_core, int stack_idx) override;
+      bool from_state_copy(const lua::api::core* lua_core, int stack_idx, bool recursive = true) override;
       bool from_object(const I_object_var* obj) override;
       void push_to_stack(const lua::api::core* lua_core) const override;
       void push_to_stack_copy(const lua::api::core* lua_core) const override;
@@ -452,9 +467,11 @@ namespace lua{
       const I_variant** get_keys() const override;
       void update_keys() override;
 
+      // This will return table_var_ref if the value is a table_var.
       variant* get_value(const comparison_variant& comp_var);
       I_variant* get_value(const I_variant* key) override;
-
+      
+      // This will return table_var_ref if the value is a table_var.
       const variant* get_value(const comparison_variant& comp_var) const;
       const I_variant* get_value(const I_variant* key) const override;
 
@@ -466,13 +483,66 @@ namespace lua{
 
       void clear_table() override;
 
-      void as_copy() override;
+      size_t get_size() const override;
+
+      void as_copy(bool recursive = true) override;
+      void remove_reference_values(bool recursive = true) override;
 
       bool is_reference() const override;
       const void* get_table_pointer() const override;
       const lua::api::core* get_lua_core() const override;
 
       void free_variant(const I_variant* var) const override;
+  };
+
+
+  class table_var_ref: public variant, public I_table_var{
+    private:
+      std::shared_ptr<table_var> _this_obj;
+
+      void _init_obj(const table_var_ref* obj);
+
+    public:
+      table_var_ref(const table_var_ref& obj);
+      table_var_ref(const table_var_ref* obj);
+      table_var_ref(std::shared_ptr<table_var>& obj);
+
+      int get_type() const override;
+      bool is_type(int type) const override;
+
+      bool from_state(const lua::api::core* lua_core, int stack_idx) override;
+      bool from_state_copy(const lua::api::core* lua_core, int stack_idx, bool recursive = true) override;
+      bool from_object(const I_object_var* obj) override;
+      void push_to_stack(const lua::api::core* lua_core) const override;
+      void push_to_stack_copy(const lua::api::core* lua_core) const override;
+
+      void to_string(I_string_store* pstring) const override;
+      std::string to_string() const override;
+
+      const I_variant** get_keys() const override;
+      void update_keys() override;
+
+      I_variant* get_value(const I_variant* key) override;
+      const I_variant* get_value(const I_variant* key) const override;
+
+      void set_value(const I_variant* key, const I_variant* data) override;
+
+      bool remove_value(const I_variant* key) override;
+
+      void clear_table() override;
+
+      size_t get_size() const override;
+
+      void as_copy(bool recursive = true) override;
+      void remove_reference_values(bool recursive = true) override;
+
+      bool is_reference() const override;
+      const void* get_table_pointer() const override;
+      const lua::api::core* get_lua_core() const override;
+
+      virtual void free_variant(const I_variant* var) const override;
+
+      table_var* get_ptr() const;
   };
 
 
