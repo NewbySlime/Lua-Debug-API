@@ -21,6 +21,7 @@
 #include "algorithm"
 #include "cmath"
 #include "cstring"
+#include "memory"
 #include "thread"
 #include "set"
 
@@ -38,7 +39,7 @@
 #define OBJECT_REFERENCE_INTERNAL_DATA "__clua_obj_ref_data"
 
 #ifndef FUNCTION_LUA_COPY_STRIP_DBG
-#define FUNCTION_LUA_COPY_STRIP_DBG true
+#define FUNCTION_LUA_COPY_STRIP_DBG false
 #endif
 
 
@@ -724,25 +725,11 @@ bool bool_var::operator!() const{
 // MARK: table_var def
 // NOTE: API interfaces only used when it is using a reference.
 
-struct _self_reference_data{
-  std::set<const void*> referenced_data;
+struct _copy_recursive_metadata{
+  bool recursive;
+
+  std::set<const void*> copied_table;
 };
-
-std::map<std::thread::id, _self_reference_data*>* _sr_data_map = NULL;
-
-static void _table_var_code_initiate();
-static void _table_var_code_deinitiate();
-static destructor_helper _table_var_dh(_table_var_code_deinitiate);
-
-static void _table_var_code_initiate(){
-  if(!_sr_data_map)
-    _sr_data_map = __dm->new_class_dbg<std::map<std::thread::id, _self_reference_data*>>(DYNAMIC_MANAGEMENT_DEBUG_DATA);
-}
-
-static void _table_var_code_deinitiate(){
-  if(_sr_data_map)
-    __dm->delete_class_dbg(_sr_data_map, DYNAMIC_MANAGEMENT_DEBUG_DATA);
-}
 
 
 // Create copy of a table
@@ -788,7 +775,6 @@ table_var::~table_var(){
 
 
 void table_var::_init_class(){
-  _table_var_code_initiate();
   _init_keys_reg();
 }
 
@@ -889,57 +875,146 @@ std::string table_var::_get_reference_key(const void* pointer){
 }
 
 
-void table_var::_fs_iter_cb(const lua::api::core* lc, int key_stack, int val_stack, int iter_idx, void* cb_data){
-  int _i_debug = 0;
+struct _fs_iter_data{
+  table_var* _this;
+  _copy_recursive_metadata* copy_metadata;
+};
 
-  table_var* _this = (table_var*)cb_data;
+void table_var::_fs_iter_cb(const lua::api::core* lc, int key_stack, int val_stack, int iter_idx, void* cb_data){
+  I_variant* _key_value = NULL;
+  I_variant* _value = NULL;
+
+{ // enclosure for using gotos
+  _fs_iter_data* _data = (_fs_iter_data*)cb_data;
 
   int _type = lc->context->api_varutil->get_special_type(lc->istate, key_stack);
-  I_variant* _key_value;
   switch(_type){
     break;
-      case LUA_TSTRING:
-      case LUA_TNUMBER:
-      case LUA_TNIL:
-      case LUA_TLIGHTUSERDATA:
-      case LUA_TUSERDATA:
-      case LUA_TBOOLEAN:{
-        _key_value = lc->context->api_varutil->to_variant(lc->istate, key_stack);
-      }
-
-    break; default:{
-      _key_value = lc->context->api_varutil->to_variant_ref(lc->istate, key_stack);
+    case LUA_TSTRING:
+    case LUA_TNUMBER:
+    case LUA_TNIL:
+    case LUA_TLIGHTUSERDATA:
+    case LUA_TUSERDATA:
+    case LUA_TBOOLEAN:{
+      _key_value = lc->context->api_varutil->to_variant(lc->istate, key_stack);
     }
-  }
-
-  I_variant* _value = lc->context->api_varutil->to_variant(lc->istate, val_stack);
-  if(_value->get_type() == LUA_TNIL){
-    string_store _str;
-    _key_value->to_string(&_str);
-    _logger->print_warning(format_str_mem(__dm, "Value of (type %d %s) is Nil. Is this intended?\n", _key_value->get_type(), _str.data.c_str()).c_str());
-  }
-
-  switch(_key_value->get_type()){
-    break;
-      case lua::string_var::get_static_lua_type():
-      case lua::nil_var::get_static_lua_type():
-      case lua::bool_var::get_static_lua_type():
-      case lua::lightuser_var::get_static_lua_type():
-      case lua::number_var::get_static_lua_type():{
-        _this->set_value(_key_value, _value);
-      }
 
     break; default:{
       _logger->print_error(format_str_mem(__dm, "Using type (%s) as key is not supported.\n",
-        lc->context->api_value->ttypename(lc->istate, _key_value->get_type())
+        lc->context->api_value->ttypename(lc->istate, _type)
       ).c_str());
+
+      goto skip_parsing_variable;
     }
   }
 
-  lc->context->api_varutil->delete_variant(_key_value);
-  lc->context->api_varutil->delete_variant(_value);
+  _value = lc->context->api_varutil->to_variant(lc->istate, val_stack);
+  switch(_value->get_type()){
+    break; case LUA_TNIL:{
+      string_store _str;
+      _key_value->to_string(&_str);
+      _logger->print_warning(format_str_mem(__dm, "Value of (type %d %s) is Nil. Is this intended?\n", _key_value->get_type(), _str.data.c_str()).c_str());
+    
+      goto skip_parsing_variable;
+    }
 
-  return;
+    // allowed types
+    break; 
+    case LUA_TSTRING:
+    case LUA_TNUMBER:
+    case LUA_TBOOLEAN:
+    case LUA_TLIGHTUSERDATA:
+    case LUA_TFUNCTION:
+
+    // check the reference pointer first
+    break; case LUA_TTABLE:{
+      I_table_var* _tvar = dynamic_cast<I_table_var*>(_value);
+      if(!_tvar->is_reference())
+        break;
+      
+      auto _iter = _data->copy_metadata->copied_table.find(_tvar->get_table_pointer());
+      if(_iter == _data->copy_metadata->copied_table.end())
+        break;
+
+      // skip due to pointer already registered
+      goto skip_parsing_variable;
+    }
+    
+    // skipped types
+    break; default:
+      goto skip_parsing_variable;
+  }
+
+  _data->_this->_set_value(_key_value, _value);
+} // enclosure closing
+
+  skip_parsing_variable:{}
+
+  if(_key_value)
+    lc->context->api_varutil->delete_variant(_key_value);
+  if(_value)
+    lc->context->api_varutil->delete_variant(_value);
+}
+
+bool table_var::_from_state_copy(const core* lc, int stack_idx, void* custom_data){
+  stack_idx = lc->context->api_stack->absindex(lc->istate, stack_idx);
+  _clear_table();
+  _table_data = __dm->new_class_dbg<std::map<comparison_variant, variant*>>(DYNAMIC_MANAGEMENT_DEBUG_DATA);
+  _is_ref = false;
+
+  // never copy core to itself, as this does not use referencing
+  int _type = lc->context->api_value->type(lc->istate, stack_idx);
+  if(_type != get_type()){
+    _logger->print_error(format_str_mem(__dm, "Mismatched type when converting at stack (%d). (%s-%s)\n",
+      stack_idx,
+      lc->context->api_value->ttypename(lc->istate, _type),
+      lc->context->api_value->ttypename(lc->istate, get_type())
+    ).c_str());
+
+    return false;
+  }
+
+  _copy_recursive_metadata* _data = (_copy_recursive_metadata*)custom_data;
+
+  // checks will occur in _fs_iter_cb
+  const void* _address = lc->context->api_value->topointer(lc->istate, stack_idx);
+  _data->copied_table.insert(_address);
+
+  _fs_iter_data _iter_data;
+    _iter_data._this = this;
+    _iter_data.copy_metadata = _data;
+
+  lc->context->api_tableutil->iterate_table(lc->istate, stack_idx, _fs_iter_cb, &_iter_data);
+
+  return true;
+}
+
+void table_var::_as_copy(void* custom_data){
+  _copy_recursive_metadata* _data = (_copy_recursive_metadata*)custom_data;
+
+  if(_is_ref){
+    push_to_stack(&_lc);
+    _from_state_copy(&_lc, -1, custom_data);
+    _lc.context->api_stack->pop(_lc.istate, 1);
+  }
+
+  // convert copy in each values
+  if(_data->recursive && _table_data){
+    for(auto _pair: *_table_data){
+      switch(_pair.second->get_type()){
+        break; case I_table_var::get_static_lua_type():{
+          table_var_ref* _tvar_ref = dynamic_cast<table_var_ref*>(_pair.second);
+          table_var* _tvar = _tvar_ref->get_ptr();
+          _tvar->_as_copy(_data);
+        }
+  
+        break; case I_function_var::get_static_lua_type():{
+          function_var* _fvar = dynamic_cast<function_var*>(_pair.second);
+          _fvar->as_copy();
+        }
+      }
+    }
+  }
 }
 
 
@@ -960,6 +1035,15 @@ variant* table_var::_get_value_by_interface(const I_variant* key) const{
     I_variant* _res_tmp = _lc.context->api_varutil->to_variant(_lc.istate, -1);
     _res = cpplua_create_var_copy(_res_tmp);
     _lc.context->api_varutil->delete_variant(_res_tmp);
+
+    // convert table_var to table_var_ref
+    switch(_res->get_type()){
+      break; case I_table_var::get_static_lua_type():{
+        table_var* _tvar = dynamic_cast<table_var*>(_res);
+        std::shared_ptr<table_var> _tvar_sptr = _create_shared_ptr(_tvar);
+        _res = new table_var_ref(_tvar_sptr);
+      }
+    }
   }
 
   _lc.context->api_stack->pop(_lc.istate, 2);
@@ -1010,7 +1094,20 @@ variant* table_var::_get_value(const comparison_variant& comp_var) const{
   if(_iter == _table_data->end())
     return NULL;
 
-  return cpplua_create_var_copy(_iter->second);
+  variant* _result;
+
+  // create table_var_ref if value is table type
+  switch(_iter->second->get_type()){
+    break; case I_table_var::get_static_lua_type():{
+      table_var_ref* _tvar_ref = dynamic_cast<table_var_ref*>(_iter->second);
+      _result = new table_var_ref(_tvar_ref);  
+    }
+
+    break; default:
+      _result = cpplua_create_var_copy(_iter->second);
+  }
+
+  return _result;
 }
 
 variant* table_var::_get_value(const I_variant* key) const{
@@ -1025,24 +1122,35 @@ variant* table_var::_get_value(const I_variant* key) const{
 
 
 void table_var::_set_value(const comparison_variant& comp_key, const variant* value){
-  if(!_table_data)
-    _init_table_data();
-
-  _remove_value(comp_key);
-  _table_data->operator[](comp_key) = cpplua_create_var_copy(value);
-
-  _update_keys_reg();
+  _set_value_direct(comp_key, cpplua_create_var_copy(value));
 }
 
 void table_var::_set_value(const I_variant* key, const I_variant* value){
   variant* _key_data = cpplua_create_var_copy(key);
   comparison_variant _key_comp(_key_data);
 
-  variant* _value_data = cpplua_create_var_copy(value);
-  _set_value(_key_comp, _value_data);
+  _set_value_direct(_key_comp, cpplua_create_var_copy(value));
 
   __dm->delete_class_dbg(_key_data, DYNAMIC_MANAGEMENT_DEBUG_DATA);
-  __dm->delete_class_dbg(_value_data, DYNAMIC_MANAGEMENT_DEBUG_DATA);
+}
+
+void table_var::_set_value_direct(const comparison_variant& comp_key, variant* value){
+  if(!_table_data)
+    _init_table_data();
+
+  _remove_value(comp_key);
+
+  switch(value->get_type()){
+    break; case I_table_var::get_static_lua_type():{
+      table_var* _tvar = dynamic_cast<table_var*>(value);
+      std::shared_ptr<table_var> _tvar_sptr = _create_shared_ptr(_tvar);
+      value = __dm->new_class_dbg<table_var_ref>(DYNAMIC_MANAGEMENT_DEBUG_DATA, _tvar_sptr);
+    }
+  }
+
+  _table_data->operator[](comp_key) = value;
+
+  _update_keys_reg();
 }
 
 
@@ -1139,6 +1247,13 @@ void table_var::_clear_keys_reg(){
 }
 
 
+std::shared_ptr<table_var> table_var::_create_shared_ptr(table_var* obj){
+  return std::shared_ptr<table_var>(obj, [](table_var* obj){
+    cpplua_delete_variant(obj);
+  }); 
+}
+
+
 int table_var::_compare_with(const variant* rhs) const{
   table_var* _rhs = (table_var*)rhs;
   if(_is_ref != _rhs->_is_ref)
@@ -1198,52 +1313,11 @@ bool table_var::from_state(const core* lc, int stack_idx){
   return true;
 }
 
-bool table_var::from_state_copy(const core* lc, int stack_idx){
-  stack_idx = lc->context->api_stack->absindex(lc->istate, stack_idx);
-  _clear_table();
-  _table_data = __dm->new_class_dbg<std::map<comparison_variant, variant*>>(DYNAMIC_MANAGEMENT_DEBUG_DATA);
+bool table_var::from_state_copy(const core* lc, int stack_idx, bool recursive){
+  _copy_recursive_metadata _custom_data;
+    _custom_data.recursive = recursive;
 
-  // never copy core to itself, as this does not use referencing
-  int _type = lc->context->api_value->type(lc->istate, stack_idx);
-  if(_type != get_type()){
-    _logger->print_error(format_str_mem(__dm, "Mismatched type when converting at stack (%d). (%s-%s)\n",
-      stack_idx,
-      lc->context->api_value->ttypename(lc->istate, _type),
-      lc->context->api_value->ttypename(lc->istate, get_type())
-    ).c_str());
-
-    return false;
-  }
-
-  bool _has_sr_ownership = false;
-  _self_reference_data* _sr_data;
-  auto _iter = _sr_data_map->find(std::this_thread::get_id());
-  if(_iter == _sr_data_map->end()){
-    _has_sr_ownership = true;
-
-    _sr_data = __dm->new_class_dbg<_self_reference_data>(DYNAMIC_MANAGEMENT_DEBUG_DATA);
-    _sr_data_map->operator[](std::this_thread::get_id()) = _sr_data;
-  }
-  else
-    _sr_data = _iter->second;
-
-  const void *_this_luapointer = lc->context->api_value->topointer(lc->istate, stack_idx);
-  if(_sr_data->referenced_data.find(_this_luapointer) != _sr_data->referenced_data.end())
-    goto skip_parsing_label;
-
-  _sr_data->referenced_data.insert(_this_luapointer);
-  lc->context->api_tableutil->iterate_table(lc->istate, stack_idx, _fs_iter_cb, this);
-
-  _is_ref = false;
-  
-  skip_parsing_label:{
-    if(_has_sr_ownership){
-      _sr_data_map->erase(std::this_thread::get_id());
-      __dm->delete_class_dbg(_sr_data, DYNAMIC_MANAGEMENT_DEBUG_DATA);
-    }
-  }
-
-  return true;
+  return _from_state_copy(lc, stack_idx, &_custom_data);
 }
 
 bool table_var::from_object(const I_object_var* obj){
@@ -1353,14 +1427,69 @@ void table_var::clear_table(){
   _clear_table_reference_data();
 }
 
+size_t table_var::get_size() const{
+  size_t _len;
+  if(_is_ref){
+    push_to_stack(&_lc);
+    _len = _lc.context->api_tableutil->table_len(_lc.istate, -1);
+    _lc.context->api_stack->pop(_lc.istate, 1);
+  }
+  else
+    _len = _table_data->size();
 
-void table_var::as_copy(){
-  if(!_is_ref) // already a copy
+  return _len;
+}
+
+
+void table_var::as_copy(bool recursive){
+  _copy_recursive_metadata _custom_data;
+    _custom_data.recursive = recursive;
+
+  _as_copy(&_custom_data);
+}
+
+void table_var::remove_reference_values(bool recursive){
+  if(!_is_ref || !_table_data)
     return;
 
-  push_to_stack(&_lc);
-  from_state_copy(&_lc, -1);
-  _lc.context->api_stack->pop(_lc.istate, 1);
+  std::vector<comparison_variant> _remove_list;
+  
+  for(auto _pair: *_table_data){
+    switch(_pair.second->get_type()){
+      break;
+      case I_string_var::get_static_lua_type():
+      case I_number_var::get_static_lua_type():
+      case I_bool_var::get_static_lua_type():
+      case I_lightuser_var::get_static_lua_type():
+      
+      break; case I_table_var::get_static_lua_type():{
+        I_table_var* _tvar = dynamic_cast<I_table_var*>(_pair.second);
+        if(!_tvar->is_reference()){
+          if(recursive)
+            _tvar->remove_reference_values(recursive);
+
+          break;
+        }
+        
+        _remove_list.insert(_remove_list.end(), _pair.first);
+      }
+
+      break; case I_function_var::get_static_lua_type():{
+        I_function_var* _fvar = dynamic_cast<I_function_var*>(_pair.second);
+        if(!_fvar->is_reference())
+          break;
+        
+        _remove_list.insert(_remove_list.end(), _pair.first); 
+      }
+
+      // non-primitive type
+      break; default:
+        _remove_list.insert(_remove_list.end(), _pair.first);
+    }
+  }
+
+  for(comparison_variant& _compvar: _remove_list)
+    remove_value(_compvar);
 }
 
 
@@ -1380,6 +1509,138 @@ const core* table_var::get_lua_core() const{
 void table_var::free_variant(const I_variant* var) const{
   cpplua_delete_variant(var);
 }
+
+
+
+
+// MARK: table_var_ref def
+
+table_var_ref::table_var_ref(const table_var_ref& obj){
+  _init_obj(&obj);
+}
+
+table_var_ref::table_var_ref(const table_var_ref* obj){
+  _init_obj(obj);
+}
+
+table_var_ref::table_var_ref(std::shared_ptr<table_var>& obj){
+  _this_obj = obj;
+}
+
+
+void table_var_ref::_init_obj(const table_var_ref* obj){
+  _this_obj = obj->_this_obj;
+}
+
+
+int table_var_ref::get_type() const{
+  return _this_obj->get_type();
+}
+
+bool table_var_ref::is_type(int type) const{
+  return _this_obj->is_type(type);
+}
+
+
+bool table_var_ref::from_state(const core* lc, int stack_idx){
+  return _this_obj->from_state(lc, stack_idx);
+}
+
+bool table_var_ref::from_state_copy(const core* lc, int stack_idx, bool recursive){
+  return _this_obj->from_state_copy(lc, stack_idx, recursive);
+}
+
+bool table_var_ref::from_object(const I_object_var* obj){
+  return _this_obj->from_object(obj);
+}
+
+void table_var_ref::push_to_stack(const core* lc) const{
+  _this_obj->push_to_stack(lc);
+}
+
+void table_var_ref::push_to_stack_copy(const core* lc) const{
+  _this_obj->push_to_stack_copy(lc);
+}
+
+
+void table_var_ref::to_string(I_string_store* pstring) const{
+  _this_obj->to_string(pstring);
+}
+
+std::string table_var_ref::to_string() const{
+  return _this_obj->to_string();
+}
+
+
+const I_variant** table_var_ref::get_keys() const{
+  return _this_obj->get_keys();
+}
+
+void table_var_ref::update_keys(){
+  _this_obj->update_keys();
+}
+
+
+I_variant* table_var_ref::get_value(const I_variant* key){
+  return _this_obj->get_value(key);
+}
+
+const I_variant* table_var_ref::get_value(const I_variant* key) const{
+  return _this_obj->get_value(key);
+}
+
+
+void table_var_ref::set_value(const I_variant* key, const I_variant* data){
+  _this_obj->set_value(key, data);
+}
+
+
+bool table_var_ref::remove_value(const I_variant* key){
+  return _this_obj->remove_value(key);
+}
+
+
+void table_var_ref::clear_table(){
+  _this_obj->clear_table();
+}
+
+size_t table_var_ref::get_size() const{
+  return _this_obj->get_size();
+}
+
+
+void table_var_ref::as_copy(bool recursive){
+  _this_obj->as_copy(recursive);
+}
+
+void table_var_ref::remove_reference_values(bool recursive){
+  _this_obj->remove_reference_values(recursive);
+}
+
+
+bool table_var_ref::is_reference() const{
+  return _this_obj->is_reference();
+}
+
+const void* table_var_ref::get_table_pointer() const{
+  return _this_obj->get_table_pointer();
+}
+
+const core* table_var_ref::get_lua_core() const{
+  return _this_obj->get_lua_core();
+}
+
+
+void table_var_ref::free_variant(const I_variant* var) const{
+  _this_obj->free_variant(var);
+}
+
+
+table_var* table_var_ref::get_ptr() const{
+  return &*_this_obj;
+}
+
+
 
 
 
