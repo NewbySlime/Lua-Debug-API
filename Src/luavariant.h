@@ -382,8 +382,12 @@ namespace lua{
       virtual void free_variant(const I_variant* var) const = 0;
   };
 
+  class table_var_ref;
   // Comparison is based on the reference or the object pointer, not the values inside the object.
   class table_var: public variant, public I_table_var{
+    public:
+      friend table_var_ref;
+
     private:
       const I_variant** _keys_buffer;
 
@@ -436,6 +440,7 @@ namespace lua{
       void _clear_keys_reg();
 
       static std::shared_ptr<table_var> _create_shared_ptr(table_var* obj);
+      static std::shared_ptr<function_var> _create_shared_ptr(function_var* obj);
 
     protected:
       int _compare_with(const variant* rhs) const override;
@@ -468,10 +473,12 @@ namespace lua{
       void update_keys() override;
 
       // This will return table_var_ref if the value is a table_var.
+      // This will return function_var_ref if the value is a function_var.
       variant* get_value(const comparison_variant& comp_var);
       I_variant* get_value(const I_variant* key) override;
       
       // This will return table_var_ref if the value is a table_var.
+      // This will return function_var_ref if the value is a function_var.
       const variant* get_value(const comparison_variant& comp_var) const;
       const I_variant* get_value(const I_variant* key) const override;
 
@@ -501,6 +508,9 @@ namespace lua{
       std::shared_ptr<table_var> _this_obj;
 
       void _init_obj(const table_var_ref* obj);
+
+    protected:
+      int _compare_with(const variant* rhs) const override;
 
     public:
       table_var_ref(const table_var_ref& obj);
@@ -540,9 +550,10 @@ namespace lua{
       const void* get_table_pointer() const override;
       const lua::api::core* get_lua_core() const override;
 
-      virtual void free_variant(const I_variant* var) const override;
+      void free_variant(const I_variant* var) const override;
 
-      table_var* get_ptr() const;
+      table_var* get_ptr();
+      const table_var* get_ptr() const;
   };
 
 
@@ -647,9 +658,13 @@ namespace lua{
       virtual const lua::api::core* get_lua_core() const = 0;
   };
 
+  class function_var_ref;
   // Comparison is based on the reference or the object pointer, not the values inside the object.
   // NOTE: any function called via function_var can use upvalues but only after LUA_FUNCVAR_START_UPVALUE
   class function_var: public I_function_var, public variant{
+    public:
+      friend function_var_ref;
+    
     private:
       luaapi_cfunction _this_fn = NULL;
       vararr* _fn_args = NULL;
@@ -732,6 +747,61 @@ namespace lua{
       void as_copy() override;
 
       const lua::api::core* get_lua_core() const override;
+  };
+
+  
+  class function_var_ref: public I_function_var, public variant{
+    private:
+      std::shared_ptr<function_var> _this_obj;
+
+      void _init_obj(const function_var_ref* obj);
+
+    protected:
+      int _compare_with(const variant* rhs) const override;
+
+    public:
+      function_var_ref(const function_var_ref& obj);
+      function_var_ref(const function_var_ref* obj);
+      function_var_ref(std::shared_ptr<function_var>& obj);
+
+      int get_type() const override;
+      bool is_type(int type) const override;
+
+      void push_to_stack(const lua::api::core* lua_core) const override;
+      
+      void to_string(I_string_store* pstring) const override;
+      std::string to_string() const override;
+
+      bool from_state(const lua::api::core* lua_core, int stack_idx) override;
+      bool from_state_copy(const lua::api::core* lua_core, int  stack_idx) override;
+      void push_to_stack_copy(const lua::api::core* lua_core) const override;
+
+      I_vararr* get_arg_closure() override;
+      const I_vararr* get_arg_closure() const override;
+
+      luaapi_cfunction get_function() const override;
+      const void* get_function_binary_chunk() const override;
+      size_t get_function_binary_chunk_len() const override;
+      const char* get_function_binary_chunk_name() const override;
+      const void* get_lua_function_pointer() const override;
+
+      bool set_function(luaapi_cfunction fn) override;
+
+      void reset_cfunction(luaapi_cfunction fn, const I_vararr* closure = NULL) override;
+      void reset_luafunction(const void* chunk_buf, size_t len, const char* chunk_name = NULL) override;
+
+      bool is_cfunction() const override;
+      bool is_luafunction() const override;
+      bool is_reference() const override;
+
+      int run_function(const lua::api::core* lua_core, const I_vararr* args, I_vararr* results) const override;
+
+      void as_copy() override;
+
+      const lua::api::core* get_lua_core() const override;
+
+      function_var* get_ptr();
+      const function_var* get_ptr() const;
   };
 
 
