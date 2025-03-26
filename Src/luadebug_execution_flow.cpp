@@ -132,14 +132,32 @@ void execution_flow::_hookcb(){
   _lock_object();
   _currently_executing = true;
   const lua_Debug* _debug_data = _hook_handler->get_current_debug_value();
+  int _last_line = _current_line;
   _current_line = _debug_data->currentline;
+
+  // empty string if source not changed
+  std::string _last_file_path;
+
+  if(_current_line < 0)
+    goto skip_blocking;
 
   if(strlen(_debug_data->source) > 0){
     switch(_debug_data->source[0]){
       break; case '@':{
+        if(_current_file_path == &_debug_data->source[1])
+          break;
+
+        _last_file_path = _current_file_path;
         _current_file_path.clear(); _current_file_path.append(&_debug_data->source[1]);
       }
     }
+  }
+
+  // check if line stepping but the file is changing
+  if(_stepping_type == st_over && _last_file_path.size() > 0){
+    // revert the variable changes
+    _current_file_path = _last_file_path;
+    goto skip_blocking;
   }
 
   switch(_debug_data->event){
@@ -158,8 +176,11 @@ void execution_flow::_hookcb(){
 
     // update function stack data
     break; case LUA_HOOKCALL:{
+      if(!_debug_data->name)
+        goto skip_blocking;
+
       _function_data* _new_data = __dm->new_class_dbg<_function_data>(DYNAMIC_MANAGEMENT_DEBUG_DATA);
-      _new_data->name = _debug_data->name? _debug_data->name: "???";
+      _new_data->name = _debug_data->name;
       _new_data->is_tailcall = false;
 
       _function_layer.insert(_function_layer.end(), _new_data);
@@ -169,6 +190,9 @@ void execution_flow::_hookcb(){
 
     // update function stack data
     break; case LUA_HOOKRET:{
+      if(!_debug_data->name)
+        goto skip_blocking;
+        
       if(_function_layer.size() <= 0)
         break;
 
@@ -216,11 +240,16 @@ void execution_flow::_hookcb(){
 
       break; case LUA_HOOKTAILCALL:
        case LUA_HOOKCALL:{
+        // check if same with previous call
         if(_stepping_type != step_type::st_in)
           goto skip_blocking;
       }
 
       break; case LUA_HOOKRET:{
+        // if last line is the same in the same file
+        if(_stepping_type == step_type::st_per_line && _last_line == _current_line && _last_file_path.size() <= 0)
+          goto skip_blocking;
+          
         int _layer_count = get_function_layer();
         if(
           (_stepping_type != step_type::st_out || _layer_count > _step_layer_check) &&
