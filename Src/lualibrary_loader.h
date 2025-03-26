@@ -1,6 +1,7 @@
 #ifndef LUALIBRARY_LOADER_HEADER
 #define LUALIBRARY_LOADER_HEADER
 
+#include "defines.h"
 #include "I_debug_user.h"
 #include "luaincludes.h"
 #include "luaI_object.h"

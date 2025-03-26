@@ -1,6 +1,7 @@
 #ifndef LUALIBRARY_IOHANDLER_HEADER
 #define LUALIBRARY_IOHANDLER_HEADER
 
+#include "defines.h"
 #include "library_linking.h"
 #include "luaI_object.h"
 #include "luaobject_util.h"

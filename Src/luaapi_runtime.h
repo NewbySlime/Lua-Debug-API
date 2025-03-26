@@ -1,6 +1,7 @@
 #ifndef LUAAPI_RUNTIME_HEADER
 #define LUAAPI_RUNTIME_HEADER
 
+#include "defines.h"
 #include "luaglobal_print_override.h"
 #include "lualibrary_loader.h"
 #include "luaruntime_handler.h"

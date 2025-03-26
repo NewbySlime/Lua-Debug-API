@@ -1,3 +1,4 @@
+#include "dllruntime.h"
 #include "dllutil.h"
 #include "error_util.h"
 #include "luaapi_internal.h"
@@ -16,12 +17,9 @@
 #include "../LuaSrc/lstate.h"
 
 #include "map"
+#include "mutex"
 #include "stdexcept"
-
-#if (_WIN64) || (_WIN32)
-#include "Windows.h"
-#endif
-
+#include "thread"
 
 #ifdef LUA_CODE_EXISTS
 
@@ -47,19 +45,14 @@ struct __thread_state_data{
 };
 
 typedef std::map<void*, __thread_state_data*> state_data_mapping;
-typedef std::map<unsigned long, state_data_mapping*> thread_data_mapping;
+typedef std::map<std::thread::id, state_data_mapping*> thread_data_mapping;
 
 static ::memory::I_dynamic_management* __dm = get_memory_manager();
 
 static thread_data_mapping* _thread_data = NULL;
 
-#if (_WIN64) || (_WIN32)
-static CRITICAL_SECTION* _code_mutex = NULL;
-#endif
 
-
-static void _lock_code();
-static void _unlock_code();
+static std::recursive_mutex* _code_mutex = NULL;
 
 static void _code_initiate();
 static void _code_deinitiate();
@@ -70,17 +63,13 @@ static void _code_initiate(){
   if(!_thread_data)
     _thread_data = __dm->new_class_dbg<thread_data_mapping>(DYNAMIC_MANAGEMENT_DEBUG_DATA);
 
-#if (_WIN64) || (_WIN32)
-  if(!_code_mutex){
-    _code_mutex = (CRITICAL_SECTION*)__dm->malloc(sizeof(CRITICAL_SECTION), DYNAMIC_MANAGEMENT_DEBUG_DATA);
-    InitializeCriticalSection(_code_mutex);
-  }
-#endif
+  if(!_code_mutex)
+    _code_mutex = __dm->new_class_dbg<std::recursive_mutex>(DYNAMIC_MANAGEMENT_DEBUG_DATA);
 }
 
 static void _code_deinitiate(){
   if(_thread_data){
-    _lock_code();
+    std::lock_guard _lg(*_code_mutex);
     for(auto tpair: *_thread_data){
       for(auto spair: *tpair.second)
         __dm->delete_class_dbg(spair.second, DYNAMIC_MANAGEMENT_DEBUG_DATA);
@@ -90,29 +79,12 @@ static void _code_deinitiate(){
 
     __dm->delete_class_dbg(_thread_data, DYNAMIC_MANAGEMENT_DEBUG_DATA);
     _thread_data = NULL;
-    _unlock_code();
   }
 
-#if (_WIN64) || (_WIN32)
   if(_code_mutex){
-    DeleteCriticalSection(_code_mutex);
-    __dm->free(_code_mutex, DYNAMIC_MANAGEMENT_DEBUG_DATA);
+    __dm->delete_class_dbg(_code_mutex, DYNAMIC_MANAGEMENT_DEBUG_DATA);
     _code_mutex = NULL;
   }
-#endif
-}
-
-
-static void _lock_code(){
-#if (_WIN64) || (_WIN32)
-  EnterCriticalSection(_code_mutex);
-#endif
-}
-
-static void _unlock_code(){
-#if (_WIN64) || (_WIN32)
-  LeaveCriticalSection(_code_mutex);
-#endif
 }
 
 
@@ -149,17 +121,14 @@ static void _register_thread_to_internal(lua_State* key, lua_State* tstate){
 
 static void _init_thread(){
   _code_initiate();
-#if (_WIN64) || (_WIN32)
-  unsigned long _tid = GetCurrentThreadId();
-#endif
+  std::thread::id _tid = std::this_thread::get_id();
 
-  _lock_code();
+  std::lock_guard _lg(*_code_mutex);
   auto _iter = _thread_data->find(_tid);
   if(_iter == _thread_data->end()){
     state_data_mapping* _state_mapping = __dm->new_class_dbg<state_data_mapping>(DYNAMIC_MANAGEMENT_DEBUG_DATA);
     _thread_data->operator[](_tid) = _state_mapping;
   }
-  _unlock_code();
 }
 
 // Called when a thread is stopped
@@ -167,11 +136,9 @@ static void _deinit_thread(){
   if(!_thread_data)
     return;
 
-#if (_WIN64) || (_WIN32)
-  unsigned long _tid = GetCurrentThreadId();
-#endif
+  std::thread::id _tid = std::this_thread::get_id();
 
-  _lock_code();
+  std::lock_guard _lg(*_code_mutex);
   auto _iter = _thread_data->find(_tid);
   if(_iter != _thread_data->end()){
     for(auto spair: *_iter->second){
@@ -186,12 +153,11 @@ static void _deinit_thread(){
     __dm->delete_class_dbg(_iter->second, DYNAMIC_MANAGEMENT_DEBUG_DATA);
     _thread_data->erase(_iter);
   }
-  _unlock_code();
 }
 
 
 #if (_WIN64) || (_WIN32)
-BOOL __cpplua_thread_util_dllevent(HINSTANCE inst, DWORD reason, LPVOID){
+BOOL __cpplua_thread_util_dllevent_win(HINSTANCE inst, DWORD reason, LPVOID){
   switch(reason){
     break; case DLL_THREAD_DETACH:{
       _deinit_thread();
@@ -199,6 +165,14 @@ BOOL __cpplua_thread_util_dllevent(HINSTANCE inst, DWORD reason, LPVOID){
   }
 
   return true;
+}
+#else
+void __cpplua_thread_util_dllevent_def(uint32_t state){
+  switch(state){
+    break; case def_dllevent_thread_stop:{
+      _deinit_thread();
+    }
+  }
 }
 #endif
 
@@ -212,30 +186,45 @@ static const fdata _lua_mutex_functions[] = {
 };
 
 class _lua_mutex: public I_mutex, public function_store, virtual public I_object{
-#if (_WIN64) || (_WIN32)
   private:
     lua_State* _state;
-    CRITICAL_SECTION _mutex;
+#if (_WIN64) || (_WIN32)
+    HANDLE _object_mutex;
+#elif (__linux)
+    pthread_mutex_t _object_mutex = PTHREAD_MUTEX_INTIIALIZER;
+#endif
 
   public:
     _lua_mutex(lua_State* state): function_store(_def_lua_mutex_destructor){
       set_function_data(_lua_mutex_functions);
 
+#if (_WIN64) || (_WIN32)
+      _object_mutex = CreateMutex(NULL, false, NULL);
+#endif
       _state = state;
-      InitializeCriticalSection(&_mutex);
     }
 
     ~_lua_mutex(){
-      DeleteCriticalSection(&_mutex);
+#if (_WIN64) || (_WIN32)
+      CloseHandle(_object_mutex);
+#endif
     }
 
 
     void lock() override{
-      EnterCriticalSection(&_mutex);
+#if (_WIN64) || (_WIN32)
+      WaitForSingleObject(_object_mutex, INFINITE);
+#elif (__linux)
+      pthread_mutex_lock(_object_mutex);
+#endif
     }
 
     void unlock() override{
-      LeaveCriticalSection(&_mutex);
+#if (_WIN64) || (_WIN32)
+      ReleaseMutex(_object_mutex);
+#elif (__linux)
+      pthread_mutex_unlock(_object_mutex);
+#endif
     }
 
 
@@ -246,7 +235,6 @@ class _lua_mutex: public I_mutex, public function_store, virtual public I_object
     void on_object_added(const lua::api::core* lc) override{
 
     }
-#endif
 };
 
 
@@ -275,19 +263,13 @@ I_mutex* lua::thread::require_state_mutex(lua_State* state){
 
 lua_State* lua::thread::require_dependent_state(lua_State* initiate_state){
   _init_thread();
-  lua_State* _result = NULL;
+  std::thread::id _tid = std::this_thread::get_id();
 
-#if (_WIN64) || (_WIN32)
-  unsigned long _tid = GetCurrentThreadId();
-#endif
-
-  _lock_code();
-
-{ // enclosure for using gotos
+  std::lock_guard _lg(*_code_mutex);
   state_data_mapping* _thread = _thread_data->operator[](_tid);
   auto _iter = _thread->find(initiate_state->l_G->mainthread);
   if(_iter == _thread->end()){ // initiate thread
-    _result = lua_newthread(initiate_state);
+    lua_State* _result = lua_newthread(initiate_state);
 
     __thread_state_data* _data = __dm->new_class_dbg<__thread_state_data>(DYNAMIC_MANAGEMENT_DEBUG_DATA);
     _data->orig_state = _result;
@@ -299,32 +281,24 @@ lua_State* lua::thread::require_dependent_state(lua_State* initiate_state){
     _data->enable = true;
 
     _register_thread_to_internal(_result, _result);
-
-    goto skip_to_return;
+    return _result;
   }
 
   __thread_state_data* _data = _iter->second;
 
   // if thread dependent state is temporarily disabled
-  if(!_data->enable){
-    _result = initiate_state;
-    goto skip_to_return;
-  }
+  if(!_data->enable)
+    return initiate_state;
 
   // return dependent thread
-  _result = _data->orig_state;
-} // enclosure closing
-
-  skip_to_return:{}
-  _unlock_code();
-  return _result;
+  return _data->orig_state;
 }
 
 void lua::thread::reset_dependent_state(lua_State* tstate, bool is_mainthread){
   if(!_thread_data)
     return;
 
-  _lock_code();
+  std::lock_guard _lg(*_code_mutex);
   if(!is_mainthread)
     tstate = tstate->l_G->mainthread;
 
@@ -336,7 +310,6 @@ void lua::thread::reset_dependent_state(lua_State* tstate, bool is_mainthread){
       tpair.second->erase(_iter);
     }
   }
-  _unlock_code();
 }
 
 
@@ -344,14 +317,11 @@ void lua::thread::thread_dependent_enable(lua_State* lstate, bool enable){
   _init_thread();
   require_dependent_state(lstate);
 
-#if (_WIN64) || (_WIN32)
-  unsigned long _tid = GetCurrentThreadId();
-#endif
+  std::thread::id _tid = std::this_thread::get_id();
 
-  _lock_code();
+  std::lock_guard _lg(*_code_mutex);
   state_data_mapping* _thread = _thread_data->operator[](_tid);
   _thread->operator[](lstate->l_G->mainthread)->enable = enable;
-  _unlock_code();
 }
 
 

@@ -1,6 +1,7 @@
 #ifndef LUAAPI_OBJECT_UTIL_HEADER
 #define LUAAPI_OBJECT_UTIL_HEADER
 
+#include "defines.h"
 #include "library_linking.h"
 #include "luaI_object.h"
 #include "macro_helper.h"

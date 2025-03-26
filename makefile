@@ -85,6 +85,10 @@ COMPILED_OBJECT_EXT=
 MINGW_COMPILED_OBJECT_EXT=.o
 MSVC_COMPILED_OBJECT_EXT=.obj
 
+DEL_DEL_COMMAND=DEL
+RM_DEL_COMMAND=rm -f
+DEFAULT_DEL_COMMAND=$(RM_DEL_COMMAND)
+
 
 # MARK: Fn cmp_str
 # Arg 1: String 1
@@ -171,7 +175,7 @@ endef
 # MARK: Fn delete_objects
 # Arg 1: File to delete
 define delete_objects
-	rm $(1)
+	$(DEFAULT_DEL_COMMAND) $(1)
 endef
 
 
@@ -190,7 +194,6 @@ endef
 define link_compilation
 	$(LINK_COMMAND) $(LINK_OPTION) $(1) $(OUTPUT_TARGET_OPTION)$(2) $(DEBUG_LINK_OPTION) $(3)
 endef
-
 
 # MARK: Fn combine_compilation
 # Arg 1: Target compilation file
@@ -225,6 +228,9 @@ f_use_mingw:
 
 f_use_msvc:
 	$(eval COMPILER_TYPE=msvc)
+
+f_use_del:
+	$(eval DEFAULT_DEL_COMMAND=$(DEL_DEL_COMMAND))
 
 f_as_debug:
 	$(eval AS_DEBUG=TRUE)

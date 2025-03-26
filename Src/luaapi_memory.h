@@ -1,6 +1,7 @@
 #ifndef LUAAPI_MEMORY_HEADER
 #define LUAAPI_MEMORY_HEADER
 
+#include "defines.h"
 #include "library_linking.h"
 #include "luaincludes.h"
 #include "macro_helper.h"

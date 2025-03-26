@@ -1,6 +1,7 @@
 #ifndef LUAAPI_TABLE_UTIL_HEADER
 #define LUAAPI_TABLE_UTIL_HEADER
 
+#include "defines.h"
 #include "library_linking.h"
 #include "luatable_util.h"
 #include "macro_helper.h"

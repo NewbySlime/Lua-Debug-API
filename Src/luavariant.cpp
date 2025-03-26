@@ -1009,7 +1009,8 @@ void table_var::_as_copy(void* custom_data){
         }
   
         break; case I_function_var::get_static_lua_type():{
-          function_var* _fvar = dynamic_cast<function_var*>(_pair.second);
+          function_var_ref* _fvar_ref = dynamic_cast<function_var_ref*>(_pair.second);
+          function_var* _fvar = _fvar_ref->get_ptr();
           _fvar->as_copy();
         }
       }
@@ -1037,11 +1038,18 @@ variant* table_var::_get_value_by_interface(const I_variant* key) const{
     _lc.context->api_varutil->delete_variant(_res_tmp);
 
     // convert table_var to table_var_ref
+    // convert function_var to function_var_ref
     switch(_res->get_type()){
       break; case I_table_var::get_static_lua_type():{
         table_var* _tvar = dynamic_cast<table_var*>(_res);
         std::shared_ptr<table_var> _tvar_sptr = _create_shared_ptr(_tvar);
         _res = new table_var_ref(_tvar_sptr);
+      }
+
+      break; case I_function_var::get_static_lua_type():{
+        function_var* _fvar = dynamic_cast<function_var*>(_res);
+        std::shared_ptr<function_var> _fvar_sptr = _create_shared_ptr(_fvar);
+        _res = new function_var_ref(_fvar_sptr);
       }
     }
   }
@@ -1097,10 +1105,16 @@ variant* table_var::_get_value(const comparison_variant& comp_var) const{
   variant* _result;
 
   // create table_var_ref if value is table type
+  // create function_var_ref if value is function type
   switch(_iter->second->get_type()){
     break; case I_table_var::get_static_lua_type():{
       table_var_ref* _tvar_ref = dynamic_cast<table_var_ref*>(_iter->second);
       _result = new table_var_ref(_tvar_ref);  
+    }
+
+    break; case I_function_var::get_static_lua_type():{
+      function_var_ref* _fvar_ref = dynamic_cast<function_var_ref*>(_iter->second);
+      _result = new function_var_ref(_fvar_ref);
     }
 
     break; default:
@@ -1145,6 +1159,12 @@ void table_var::_set_value_direct(const comparison_variant& comp_key, variant* v
       table_var* _tvar = dynamic_cast<table_var*>(value);
       std::shared_ptr<table_var> _tvar_sptr = _create_shared_ptr(_tvar);
       value = __dm->new_class_dbg<table_var_ref>(DYNAMIC_MANAGEMENT_DEBUG_DATA, _tvar_sptr);
+    }
+
+    break; case I_function_var::get_static_lua_type():{
+      function_var* _fvar = dynamic_cast<function_var*>(value);
+      std::shared_ptr<function_var> _fvar_sptr = _create_shared_ptr(_fvar);
+      value = __dm->new_class_dbg<function_var_ref>(DYNAMIC_MANAGEMENT_DEBUG_DATA, _fvar_sptr);
     }
   }
 
@@ -1250,7 +1270,13 @@ void table_var::_clear_keys_reg(){
 std::shared_ptr<table_var> table_var::_create_shared_ptr(table_var* obj){
   return std::shared_ptr<table_var>(obj, [](table_var* obj){
     cpplua_delete_variant(obj);
-  }); 
+  });
+}
+
+std::shared_ptr<function_var> table_var::_create_shared_ptr(function_var* obj){
+  return std::shared_ptr<function_var>(obj, [](function_var* obj){
+    cpplua_delete_variant(obj);
+  });
 }
 
 
@@ -1533,6 +1559,11 @@ void table_var_ref::_init_obj(const table_var_ref* obj){
 }
 
 
+int table_var_ref::_compare_with(const variant* rhs) const{
+  return _this_obj->_compare_with(rhs);
+}
+
+
 int table_var_ref::get_type() const{
   return _this_obj->get_type();
 }
@@ -1636,7 +1667,11 @@ void table_var_ref::free_variant(const I_variant* var) const{
 }
 
 
-table_var* table_var_ref::get_ptr() const{
+table_var* table_var_ref::get_ptr(){
+  return &*_this_obj;
+}
+
+const table_var* table_var_ref::get_ptr() const{
   return &*_this_obj;
 }
 
@@ -2302,6 +2337,150 @@ void function_var::as_copy(){
 
 const core* function_var::get_lua_core() const{
   return &_lc;
+}
+
+
+
+
+// MARK: function_var_ref def
+
+function_var_ref::function_var_ref(const function_var_ref& obj){
+  _init_obj(&obj);
+}
+
+function_var_ref::function_var_ref(const function_var_ref* obj){
+  _init_obj(obj);
+}
+
+function_var_ref::function_var_ref(std::shared_ptr<function_var>& obj){
+  _this_obj = obj;
+}
+
+
+void function_var_ref::_init_obj(const function_var_ref* obj){
+  _this_obj = obj->_this_obj;
+}
+
+
+int function_var_ref::_compare_with(const variant* rhs) const{
+  return _this_obj->_compare_with(rhs);
+}
+
+
+int function_var_ref::get_type() const{
+  return _this_obj->get_type();
+}
+
+bool function_var_ref::is_type(int type) const{
+  return _this_obj->is_type(type);
+}
+
+
+void function_var_ref::push_to_stack(const core* lc) const{
+  _this_obj->push_to_stack(lc);
+}
+
+
+void function_var_ref::to_string(I_string_store* pstring) const{
+  _this_obj->to_string(pstring);
+}
+
+std::string function_var_ref::to_string() const{
+  return _this_obj->to_string();
+}
+
+
+bool function_var_ref::from_state(const core* lc, int stack_idx){
+  return _this_obj->from_state(lc, stack_idx);
+}
+
+bool function_var_ref::from_state_copy(const core* lc, int stack_idx){
+  return _this_obj->from_state_copy(lc, stack_idx);
+}
+
+void function_var_ref::push_to_stack_copy(const core* lc) const{
+  _this_obj->push_to_stack_copy(lc);
+}
+
+
+I_vararr* function_var_ref::get_arg_closure(){
+  return _this_obj->get_arg_closure();
+}
+
+const I_vararr* function_var_ref::get_arg_closure() const{
+  return _this_obj->get_arg_closure();
+}
+
+
+I_function_var::luaapi_cfunction function_var_ref::get_function() const{
+  return _this_obj->get_function();
+}
+
+const void* function_var_ref::get_function_binary_chunk() const{
+  return _this_obj->get_function_binary_chunk();
+}
+
+size_t function_var_ref::get_function_binary_chunk_len() const{
+  return _this_obj->get_function_binary_chunk_len();
+}
+
+const char* function_var_ref::get_function_binary_chunk_name() const{
+  return _this_obj->get_function_binary_chunk_name();
+}
+
+const void* function_var_ref::get_lua_function_pointer() const{
+  return _this_obj->get_lua_function_pointer();
+}
+
+
+bool function_var_ref::set_function(I_function_var::luaapi_cfunction fn){
+  return _this_obj->set_function(fn);
+}
+
+
+void function_var_ref::reset_cfunction(I_function_var::luaapi_cfunction fn, const I_vararr* closure){
+  _this_obj->reset_cfunction(fn, closure);
+}
+
+void function_var_ref::reset_luafunction(const void* chunk_buf, size_t len, const char* chunk_name){
+  _this_obj->reset_luafunction(chunk_buf, len, chunk_name);
+}
+
+
+bool function_var_ref::is_cfunction() const{
+  return _this_obj->is_cfunction();
+}
+
+bool function_var_ref::is_luafunction() const{
+  return _this_obj->is_luafunction();
+}
+
+bool function_var_ref::is_reference() const{
+  return _this_obj->is_reference();
+}
+
+
+int function_var_ref::run_function(const core* lc, const I_vararr* args, I_vararr* results) const{
+  return _this_obj->run_function(lc, args, results);
+}
+
+
+void function_var_ref::as_copy(){
+  _this_obj->as_copy();
+}
+
+
+const core* function_var_ref::get_lua_core() const{
+  return _this_obj->get_lua_core();
+}
+
+
+function_var* function_var_ref::get_ptr(){
+  return &*_this_obj;
+}
+
+const function_var* function_var_ref::get_ptr() const{
+  return &*_this_obj;
 }
 
 

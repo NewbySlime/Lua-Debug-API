@@ -1,6 +1,7 @@
 #ifndef LUAAPI_MEMORY_UTIL_HEADER
 #define LUAAPI_MEMORY_UTIL_HEADER
 
+#include "defines.h"
 #include "library_linking.h"
 #include "macro_helper.h"
 #include "memdynamic_management.h"

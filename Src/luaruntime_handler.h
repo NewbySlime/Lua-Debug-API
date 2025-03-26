@@ -1,6 +1,7 @@
 #ifndef LUARUNTIME_HANDLER_HEADER
 #define LUARUNTIME_HANDLER_HEADER
 
+#include "defines.h"
 #include "dllutil.h"
 #include "I_debug_user.h"
 #include "I_logger.h"

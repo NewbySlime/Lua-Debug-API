@@ -1,6 +1,7 @@
 #ifndef LUAAPI_STATE_HEADER
 #define LUAAPI_STATE_HEADER
 
+#include "defines.h"
 #include "library_linking.h"
 #include "luaincludes.h"
 #include "macro_helper.h"

@@ -1,6 +1,7 @@
 #ifndef LUADEBUG_VARIABLE_WATCHER_HEADER
 #define LUADEBUG_VARIABLE_WATCHER_HEADER
 
+#include "defines.h"
 #include "I_debug_user.h"
 #include "luaincludes.h"
 #include "luavariant.h"

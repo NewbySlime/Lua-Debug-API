@@ -2,6 +2,7 @@
 #ifndef LUASTREAM_PRINT_OVERRIDE_HEADER
 #define LUASTREAM_PRINT_OVERRIDE_HEADER
 
+#include "defines.h"
 #include "I_debug_user.h"
 #include "library_linking.h"
 #include "luaincludes.h"
