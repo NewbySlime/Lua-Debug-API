@@ -46,6 +46,7 @@
 using namespace dynamic_library::util;
 using namespace lua;
 using namespace lua::api;
+using namespace lua::debug;
 using namespace lua::memory;
 using namespace lua::utility;
 using namespace ::memory;
@@ -1880,6 +1881,11 @@ void function_var::_clear_function_data(){
     _fn_binary_name = NULL;
   }
 
+  if(_debug_info){
+    _lc.context->api_debug->delete_function_debug_info(_debug_info);
+    _debug_info = NULL;
+  }
+
   // Make a reset
   _is_cfunction = true;
   _is_reference = false;
@@ -1897,6 +1903,9 @@ void function_var::_copy_from_var(const I_function_var* data){
     _lc = *data->get_lua_core();
     _func_pointer = data->get_lua_function_pointer();
     _fref = __dm->new_class_dbg<value_ref>(DYNAMIC_MANAGEMENT_DEBUG_DATA, &_lc, FUNCTION_REFERENCE_INTERNAL_DATA, _get_reference_key(_func_pointer).c_str());
+
+    if(data->get_debug_info())
+      _debug_info = __dm->new_class_dbg<function_debug_info>(DYNAMIC_MANAGEMENT_DEBUG_DATA, data->get_debug_info());
 
     return;
   }
@@ -2022,6 +2031,9 @@ bool function_var::from_state(const core* lc, int stack_idx){
   _fref = __dm->new_class_dbg<value_ref>(DYNAMIC_MANAGEMENT_DEBUG_DATA, &_lc, FUNCTION_REFERENCE_INTERNAL_DATA, _get_reference_key(_func_pointer).c_str());
   if(!_fref->reference_initiated())
     _fref->set_value(stack_idx);
+
+  if(!_is_cfunction)
+    _debug_info = _lc.context->api_debug->create_function_debug_info(_lc.istate, stack_idx);
 
   return true;
 }
@@ -2173,7 +2185,7 @@ void function_var::push_to_stack(const core* lc) const{
         _reader_data._this = this;
         _reader_data.current_idx = 0;
 
-      lc->context->api_state->load(lc->istate, _fn_chunk_data_reader, &_reader_data, _fn_binary_name, "b");
+      lc->context->api_state->load(lc->istate, _fn_chunk_data_reader, &_reader_data, _fn_binary_name, "bt");
     }
     else
       _push_by_create_copy = true;
@@ -2325,6 +2337,11 @@ int function_var::run_function(const core* lc, const I_vararr* args, I_vararr* r
 }
 
 
+const I_function_debug_info* function_var::get_debug_info() const{
+  return _debug_info;
+}
+
+
 void function_var::as_copy(){
   if(!is_reference()) // already a copy
     return;
@@ -2462,6 +2479,11 @@ bool function_var_ref::is_reference() const{
 
 int function_var_ref::run_function(const core* lc, const I_vararr* args, I_vararr* results) const{
   return _this_obj->run_function(lc, args, results);
+}
+
+
+const I_function_debug_info* function_var_ref::get_debug_info() const{
+  return _this_obj->get_debug_info();
 }
 
 

@@ -6,6 +6,7 @@
 #include "library_linking.h"
 #include "luaincludes.h"
 #include "luaapi_compilation_context.h"
+#include "luadebug_info.h"
 #include "luaI_object.h"
 #include "luavalue_ref.h"
 #include "macro_helper.h"
@@ -653,6 +654,8 @@ namespace lua{
       // This uses lua_pcall so when an error thrown, returned integer will be an error code (not a LUA_OK). The error object thrown by Lua will be put in results as the first result.
       virtual int run_function(const lua::api::core* lua_core, const I_vararr* args, I_vararr* results) const = 0;
 
+      virtual const lua::debug::I_function_debug_info* get_debug_info() const = 0;
+
       virtual void as_copy() = 0;
 
       virtual const lua::api::core* get_lua_core() const = 0;
@@ -677,6 +680,8 @@ namespace lua{
       lua::api::core _lc;
       const void* _func_pointer = NULL;
       value_ref* _fref = NULL;
+
+      lua::debug::I_function_debug_info* _debug_info = NULL;
 
       bool _is_reference = false;
       bool _is_cfunction = true;
@@ -744,6 +749,9 @@ namespace lua{
 
       int run_function(const lua::api::core* lua_core, const I_vararr* args, I_vararr* results) const override;
 
+      // Returns NULL if not a C function.
+      const lua::debug::I_function_debug_info* get_debug_info() const override;
+
       void as_copy() override;
 
       const lua::api::core* get_lua_core() const override;
@@ -795,6 +803,8 @@ namespace lua{
       bool is_reference() const override;
 
       int run_function(const lua::api::core* lua_core, const I_vararr* args, I_vararr* results) const override;
+
+      const lua::debug::I_function_debug_info* get_debug_info() const override;
 
       void as_copy() override;
 

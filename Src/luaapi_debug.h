@@ -5,6 +5,7 @@
 #include "luadebug_execution_flow.h"
 #include "luadebug_file_info.h"
 #include "luadebug_hook_handler.h"
+#include "luadebug_info.h"
 #include "luadebug_variable_watcher.h"
 #include "library_linking.h"
 #include "luaincludes.h"
@@ -35,6 +36,9 @@ namespace lua::api{
 
       virtual lua::debug::I_file_info* create_file_info(const char* file_path) = 0;
       virtual void delete_file_info(lua::debug::I_file_info* obj) = 0;
+
+      virtual lua::debug::I_function_debug_info* create_function_debug_info(void* istate, int stack_idx) = 0;
+      virtual void delete_function_debug_info(lua::debug::I_function_debug_info* obj) = 0;
   };
 }
 

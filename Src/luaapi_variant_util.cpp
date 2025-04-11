@@ -15,7 +15,9 @@ class _api_variant_util_definition: public lua::api::I_variant_util{
     void set_special_type(void* istate, int stack_idx, int new_type) override{lua::set_special_type((lua_State*)istate, stack_idx, new_type);}
     int get_special_type(void* istate, int stack_idx) override{return lua::get_special_type((lua_State*)istate, stack_idx);}
 
-    void set_global(void* istate, const char* global_name, I_variant* var){lua::set_global((lua_State*)istate, global_name, var);}
+    void set_global(void* istate, const char* global_name, I_variant* var) override{lua::set_global((lua_State*)istate, global_name, var);}
+
+    I_variant* load_file_as_function(const char* func_name) override{return lua::load_file_as_function(func_name);}
 
     I_variant* create_variant_copy(const I_variant* var) override{return cpplua_create_var_copy(var);}
     void delete_variant(const I_variant* var) override{cpplua_delete_variant(var);}
