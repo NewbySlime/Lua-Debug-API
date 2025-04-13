@@ -19,6 +19,7 @@ namespace lua::api{
 
       virtual void* get_main_thread(void* istate) = 0;
       virtual void* require_general_usage_runtime() = 0;
+      virtual lua::api::core require_general_usage_core() = 0;
   };
 }
 

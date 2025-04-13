@@ -6,6 +6,9 @@
 #include "macro_helper.h"
 #include "string_store.h"
 
+#include "string"
+#include "vector"
+
 
 namespace lua::debug{
   class I_function_debug_info{
@@ -14,6 +17,9 @@ namespace lua::debug{
       virtual bool get_file_path(I_string_store* str) const = 0;
       virtual int get_line_defined() const = 0;
       virtual int get_last_line_defined() const = 0;
+
+      virtual int get_parameter_name_count() const = 0;
+      virtual void get_parameter_name(int i, I_string_store* str) const = 0;
 
       virtual bool is_lua_function() const = 0;
   };
@@ -27,6 +33,8 @@ namespace lua::debug{
 
       bool _is_lua_function = false;
 
+      std::vector<std::string> _parameter_name_list;
+
     public:
       function_debug_info(){}
       function_debug_info(const I_function_debug_info* obj);
@@ -38,6 +46,9 @@ namespace lua::debug{
       bool get_file_path(I_string_store* str) const override;
       int get_line_defined() const override;
       int get_last_line_defined() const override;
+
+      int get_parameter_name_count() const override;
+      void get_parameter_name(int i, I_string_store* str) const override;
 
       bool is_lua_function() const override;
   };

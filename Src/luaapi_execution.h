@@ -16,7 +16,7 @@ namespace lua::api{
       virtual int pcallk(void* istate, int nargs, int nresults, int msgh, lua_KContext ctx, lua_KFunction k) = 0;
       virtual int resume(void* istate, void* ifrom, int nargs) = 0;
       virtual int status(void* istate) = 0;
-      virtual int yield(void* istate, int nresults);
+      virtual int yield(void* istate, int nresults) = 0;
       virtual int yieldk(void* istate, int nresults, lua_KContext ctx, lua_KFunction k) = 0;
   };
 }
