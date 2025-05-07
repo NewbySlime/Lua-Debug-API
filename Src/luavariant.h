@@ -362,7 +362,7 @@ namespace lua{
       virtual const I_variant* get_value(const I_variant* key) const = 0;
 
       virtual void set_value(const I_variant* key, const I_variant* data) = 0;
-
+      virtual void rename_value(const I_variant* key, const I_variant* to_key) = 0;
       virtual bool remove_value(const I_variant* key) = 0;
 
       // Remove table values.
@@ -421,6 +421,7 @@ namespace lua{
 
       variant* _get_value_by_interface(const I_variant* key) const;
       void _set_value_by_interface(const I_variant* key, const I_variant* value);
+      void _rename_value_by_interface(const I_variant* key, const I_variant* to_key);
       bool _remove_value_by_interface(const I_variant* key);
 
       variant* _get_value(const comparison_variant& comp_var) const;
@@ -431,6 +432,7 @@ namespace lua{
       // This will directly use the variant object as the value, instead of copying it first.
       // WARN: DO NOT delete the value object once it is set to the table. Let the table decide its lifetime.
       void _set_value_direct(const comparison_variant& comp_key, variant* value);
+      void _rename_value(const I_variant* key, const I_variant* to_key);
       bool _remove_value(const comparison_variant& comp_key);
       bool _remove_value(const I_variant* key);
 
@@ -485,7 +487,7 @@ namespace lua{
 
       void set_value(const comparison_variant& comp_var, variant* value);
       void set_value(const I_variant* key, const I_variant* data) override;
-
+      void rename_value(const I_variant* key, const I_variant* to_key) override;
       bool remove_value(const comparison_variant& comp_var);
       bool remove_value(const I_variant* key) override;
 
@@ -537,7 +539,7 @@ namespace lua{
       const I_variant* get_value(const I_variant* key) const override;
 
       void set_value(const I_variant* key, const I_variant* data) override;
-
+      void rename_value(const I_variant* key, const I_variant* to_key) override;
       bool remove_value(const I_variant* key) override;
 
       void clear_table() override;

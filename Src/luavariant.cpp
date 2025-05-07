@@ -1076,6 +1076,30 @@ void table_var::_set_value_by_interface(const I_variant* key, const I_variant* v
   _update_keys_reg();
 }
 
+void table_var::_rename_value_by_interface(const I_variant* key, const I_variant* to_key){
+  if(!_tref)
+    return;
+
+  // get actual table s+1
+  _tref->push_value_to_stack();
+
+  // get value s+1
+  key->push_to_stack(&_lc);
+  _lc.context->api_value->gettable(_lc.istate, -2);
+
+  // delete previous value record
+  key->push_to_stack(&_lc);
+  _lc.context->api_value->pushnil(_lc.istate);
+  _lc.context->api_value->settable(_lc.istate, -4);
+
+  // set value with new name
+  to_key->push_to_stack(&_lc);
+  _lc.context->api_stack->pushvalue(_lc.istate, -2);
+  _lc.context->api_value->settable(_lc.istate, -4);
+
+  _lc.context->api_stack->pop(_lc.istate, 2);
+}
+
 bool table_var::_remove_value_by_interface(const I_variant* key){
   if(!_tref)
     return false;
@@ -1174,6 +1198,22 @@ void table_var::_set_value_direct(const comparison_variant& comp_key, variant* v
   _update_keys_reg();
 }
 
+void table_var::_rename_value(const I_variant* key, const I_variant* to_key){
+  if(_table_data)
+    return;
+
+  auto _check_iter = _table_data->find(key);
+  if(_check_iter == _table_data->end())
+    return;
+
+  // just in case, check the to_key value
+  _remove_value(to_key);
+  
+  variant* _value = _check_iter->second;
+
+  _table_data->erase(_check_iter);
+  _table_data->operator[](to_key) = _value;
+}
 
 bool table_var::_remove_value(const comparison_variant& comp_key){
   if(!_table_data)
@@ -1438,6 +1478,12 @@ void table_var::set_value(const I_variant* key, const I_variant* data){
     _set_value(key, data);
 }
 
+void table_var::rename_value(const I_variant* key, const I_variant* to_key){
+  if(_is_ref)
+    _rename_value_by_interface(key, to_key);
+  else
+    _rename_value(key, to_key);
+}
 
 bool table_var::remove_value(const comparison_variant& comp_var){
   return _is_ref? _remove_value_by_interface(comp_var.get_comparison_data()): _remove_value(comp_var);
@@ -1626,6 +1672,9 @@ void table_var_ref::set_value(const I_variant* key, const I_variant* data){
   _this_obj->set_value(key, data);
 }
 
+void table_var_ref::rename_value(const I_variant* key, const I_variant* to_key){
+  _this_obj->rename_value(key, to_key);
+}
 
 bool table_var_ref::remove_value(const I_variant* key){
   return _this_obj->remove_value(key);
