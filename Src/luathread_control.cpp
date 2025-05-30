@@ -12,6 +12,7 @@
 #include "Windows.h"
 #endif
 
+#include "stdexcept"
 
 #ifdef LUA_CODE_EXISTS
 
@@ -38,6 +39,13 @@ thread_local thread_handle* _thandle_tls;
 #if (_WIN64) || (_WIN32)
 thread_handle::thread_handle(HANDLE thread_handle, lua_State* lstate){
   _thread_handle = thread_handle;
+  _current_tstate = lstate;
+
+  _init_class(lstate);
+}
+#elif (__linux)
+thread_handle::thread_handle(pthread_t thread_handle, lua_State* lstate){
+  _thread_id = thread_handle;
   _current_tstate = lstate;
 
   _init_class(lstate);
@@ -107,15 +115,7 @@ bool thread_handle::is_stopped() const{
 
   return true;
 #elif (__linux)
-  void* _dmp_res = NULL;
-  int _result = pthread_tryjoin_np(_thread_id, &_dmp_res);
-  switch(_result){
-    break;
-    case EBUSY:
-      return false;
-  }
-
-  return true;
+  return !_thread_id_valid;
 #endif
 }
 
@@ -126,7 +126,6 @@ void thread_handle::join(){
 
 void thread_handle::try_join(unsigned long wait_ms){
 #if (_WIN64) || (_WIN32)
-  HANDLE _test = INVALID_HANDLE_VALUE;
   if(_thread_handle == INVALID_HANDLE_VALUE)
     return;
 
@@ -136,6 +135,17 @@ void thread_handle::try_join(unsigned long wait_ms){
     
   CloseHandle(_thread_handle);
   _thread_handle = INVALID_HANDLE_VALUE;
+#elif (__linux)
+  if(!_thread_id_valid)
+    return;
+
+  timespec _ts;
+    _ts.tv_sec = wait_ms/1000;
+    _ts.tv_nsec = (wait_ms%1000)*1000000;
+
+  int _result = pthread_timedjoin_np(_thread_id, NULL, &_ts);
+  if(!_result)
+    _thread_id_valid = false;
 #endif
 }
 
@@ -152,6 +162,8 @@ bool thread_handle::joinable(){
   }
 
   return true;
+#elif (__linux)
+  return _thread_id_valid;
 #endif
 }
 
@@ -162,6 +174,12 @@ void thread_handle::detach(){
 
   CloseHandle(_thread_handle);
   _thread_handle = INVALID_HANDLE_VALUE;
+#elif (__linux)
+  if(!_thread_id_valid)
+    return;
+
+  pthread_detach(_thread_id);
+  _thread_id_valid = false;
 #endif
 }
 
@@ -259,7 +277,7 @@ void thread_control::__thread_entry_point_generalize(_t_entry_point_data* data){
   std::lock_guard _lg_init(data->init_mutex);
 
   thread_control* _this = data->_this;
-  unsigned long _thread_id = GetCurrentThreadId();
+  unsigned long _thread_id = data->thread_handle;
 
   thread_handle* _thread_handle = __dm->new_class_dbg<thread_handle>(DYNAMIC_MANAGEMENT_DEBUG_DATA, data->thread_handle, data->lstate);
   _thandle_tls = _thread_handle;

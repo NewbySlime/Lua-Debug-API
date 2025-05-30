@@ -15,6 +15,7 @@
 #include "map"
 #include "memory"
 #include "mutex"
+
 #include "set"
 #include "thread"
 
@@ -117,6 +118,7 @@ namespace lua{
       HANDLE _thread_handle;
 #elif (__linux)
       pthread_t _thread_id;
+      volatile bool _thread_id_valid = true;
 #endif
 
       std::recursive_mutex _object_mutex;
@@ -132,7 +134,7 @@ namespace lua{
 #if (_WIN64) || (_WIN32)
       thread_handle(HANDLE thread_handle, lua_State* lstate);
 #elif (__linux)
-      // TODO linux
+      thread_handle(pthread_t thread_handle, lua_State* lstate);
 #endif
       ~thread_handle();
 
