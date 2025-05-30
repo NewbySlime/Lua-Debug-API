@@ -107,6 +107,7 @@ namespace lua::debug{
 
       volatile step_type _stepping_type = st_none;
       volatile unsigned int _step_layer_check;
+      volatile int _step_line_check;
 
       volatile int _current_line;
       std::string _current_file_path;

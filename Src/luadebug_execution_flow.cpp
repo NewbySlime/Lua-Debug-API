@@ -153,13 +153,6 @@ void execution_flow::_hookcb(){
     }
   }
 
-  // check if line stepping but the file is changing
-  if(_stepping_type == st_over && _last_file_path.size() > 0){
-    // revert the variable changes
-    _current_file_path = _last_file_path;
-    goto skip_blocking;
-  }
-
   switch(_debug_data->event){
     // Debug info does not track function name when it comes to tailcalling
 
@@ -176,11 +169,10 @@ void execution_flow::_hookcb(){
 
     // update function stack data
     break; case LUA_HOOKCALL:{
-      if(!_debug_data->name)
-        goto skip_blocking;
+      const char* _func_name = _debug_data->name? _debug_data->name: "__main_func";
 
       _function_data* _new_data = __dm->new_class_dbg<_function_data>(DYNAMIC_MANAGEMENT_DEBUG_DATA);
-      _new_data->name = _debug_data->name;
+      _new_data->name = _func_name;
       _new_data->is_tailcall = false;
 
       _function_layer.insert(_function_layer.end(), _new_data);
@@ -190,9 +182,6 @@ void execution_flow::_hookcb(){
 
     // update function stack data
     break; case LUA_HOOKRET:{
-      if(!_debug_data->name)
-        goto skip_blocking;
-        
       if(_function_layer.size() <= 0)
         break;
 
@@ -229,12 +218,20 @@ void execution_flow::_hookcb(){
 
       break; case LUA_HOOKLINE:{
         int _layer_count = get_function_layer();
+        // let these step types be blocked
         if(
           _stepping_type != step_type::st_per_line &&
-          (_stepping_type != step_type::st_over || _layer_count != _step_layer_check) &&
           _stepping_type != step_type::st_in &&
-          (_stepping_type != step_type::st_out || _layer_count > _step_layer_check)
+          _stepping_type != step_type::st_over &&
+          _stepping_type != step_type::st_out
         )
+          goto skip_blocking;
+
+        // over and out should not be blocking when still in the upper layer.
+        if(_stepping_type == step_type::st_out && _layer_count > _step_layer_check)
+          goto skip_blocking;
+
+        if(_stepping_type == step_type::st_over && (_layer_count > _step_layer_check || _current_line == _step_line_check))
           goto skip_blocking;
       }
 
@@ -251,10 +248,7 @@ void execution_flow::_hookcb(){
           goto skip_blocking;
           
         int _layer_count = get_function_layer();
-        if(
-          (_stepping_type != step_type::st_out || _layer_count > _step_layer_check) &&
-          (_stepping_type != step_type::st_over || _layer_count > _step_layer_check)
-        )
+        if((_stepping_type == step_type::st_out || _stepping_type == step_type::st_over) && _layer_count >= _step_layer_check)
           goto skip_blocking;
       }
     }
@@ -361,6 +355,7 @@ void execution_flow::step_execution(step_type st){
   switch(st){
     break; case step_type::st_over:{
       _step_layer_check = get_function_layer();
+      _step_line_check = _current_line;
     }
 
     break; case step_type::st_in:{

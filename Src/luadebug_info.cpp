@@ -47,10 +47,14 @@ function_debug_info::function_debug_info(lua_State* state, int idx){
   switch(_dbg.source[0]){
     break; case '=':{
       // TODO ?
+      // This represent the description of the source in user dependant manner?
     }
 
     break; case '@':
       _file_path = &_dbg.source[1];
+
+    break; default:
+      // Containing the source code itself.
   }
   
   _is_lua_function = true;
