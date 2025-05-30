@@ -1,6 +1,7 @@
 #include "luaapi_util.h"
 #include "luautility.h"
 
+
 using namespace lua::api;
 
 
@@ -15,6 +16,8 @@ class _api_util_function: public I_util{
     const lua_Number* version(void* istate) override{return lua_version((lua_State*)istate);}
 
     void* get_main_thread(void* istate) override{return lua::utility::get_main_thread((lua_State*)istate);}
+    void* require_general_usage_runtime() override{return lua::utility::require_general_usage_runtime();}
+    lua::api::core require_general_usage_core() override{return lua::utility::as_lua_api_core(lua::utility::require_general_usage_runtime());}
 };
 
 

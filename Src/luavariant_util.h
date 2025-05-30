@@ -41,6 +41,9 @@ namespace lua{
   int get_special_type(lua_State* state, int stack_idx);
 
   void set_global(lua_State* state, const char* global_name, I_variant* var);
+
+  // Might return error_var if an error happen.
+  variant* load_file_as_function(const char* file_path);
   
 #endif // LUA_CODE_EXISTS
 

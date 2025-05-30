@@ -3,6 +3,7 @@
 
 #include "defines.h"
 #include "library_linking.h"
+#include "luageneral_usage_runtime.h"
 #include "luaincludes.h"
 #include "macro_helper.h"
 
@@ -17,6 +18,8 @@ namespace lua::api{
       virtual const lua_Number* version(void* istate) = 0;
 
       virtual void* get_main_thread(void* istate) = 0;
+      virtual void* require_general_usage_runtime() = 0;
+      virtual lua::api::core require_general_usage_core() = 0;
   };
 }
 

@@ -10,6 +10,10 @@ string_store::string_store(const std::string& str){
 }
 
 
+void string_store::clear(){
+  data.clear();
+}
+
 void string_store::append(const char* cstr){
   data.append(cstr);
 }

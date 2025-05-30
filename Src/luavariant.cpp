@@ -46,6 +46,7 @@
 using namespace dynamic_library::util;
 using namespace lua;
 using namespace lua::api;
+using namespace lua::debug;
 using namespace lua::memory;
 using namespace lua::utility;
 using namespace ::memory;
@@ -1075,6 +1076,30 @@ void table_var::_set_value_by_interface(const I_variant* key, const I_variant* v
   _update_keys_reg();
 }
 
+void table_var::_rename_value_by_interface(const I_variant* key, const I_variant* to_key){
+  if(!_tref)
+    return;
+
+  // get actual table s+1
+  _tref->push_value_to_stack();
+
+  // get value s+1
+  key->push_to_stack(&_lc);
+  _lc.context->api_value->gettable(_lc.istate, -2);
+
+  // delete previous value record
+  key->push_to_stack(&_lc);
+  _lc.context->api_value->pushnil(_lc.istate);
+  _lc.context->api_value->settable(_lc.istate, -4);
+
+  // set value with new name
+  to_key->push_to_stack(&_lc);
+  _lc.context->api_stack->pushvalue(_lc.istate, -2);
+  _lc.context->api_value->settable(_lc.istate, -4);
+
+  _lc.context->api_stack->pop(_lc.istate, 2);
+}
+
 bool table_var::_remove_value_by_interface(const I_variant* key){
   if(!_tref)
     return false;
@@ -1173,6 +1198,22 @@ void table_var::_set_value_direct(const comparison_variant& comp_key, variant* v
   _update_keys_reg();
 }
 
+void table_var::_rename_value(const I_variant* key, const I_variant* to_key){
+  if(_table_data)
+    return;
+
+  auto _check_iter = _table_data->find(key);
+  if(_check_iter == _table_data->end())
+    return;
+
+  // just in case, check the to_key value
+  _remove_value(to_key);
+  
+  variant* _value = _check_iter->second;
+
+  _table_data->erase(_check_iter);
+  _table_data->operator[](to_key) = _value;
+}
 
 bool table_var::_remove_value(const comparison_variant& comp_key){
   if(!_table_data)
@@ -1437,6 +1478,12 @@ void table_var::set_value(const I_variant* key, const I_variant* data){
     _set_value(key, data);
 }
 
+void table_var::rename_value(const I_variant* key, const I_variant* to_key){
+  if(_is_ref)
+    _rename_value_by_interface(key, to_key);
+  else
+    _rename_value(key, to_key);
+}
 
 bool table_var::remove_value(const comparison_variant& comp_var){
   return _is_ref? _remove_value_by_interface(comp_var.get_comparison_data()): _remove_value(comp_var);
@@ -1625,6 +1672,9 @@ void table_var_ref::set_value(const I_variant* key, const I_variant* data){
   _this_obj->set_value(key, data);
 }
 
+void table_var_ref::rename_value(const I_variant* key, const I_variant* to_key){
+  _this_obj->rename_value(key, to_key);
+}
 
 bool table_var_ref::remove_value(const I_variant* key){
   return _this_obj->remove_value(key);
@@ -1880,6 +1930,11 @@ void function_var::_clear_function_data(){
     _fn_binary_name = NULL;
   }
 
+  if(_debug_info){
+    _lc.context->api_debug->delete_function_debug_info(_debug_info);
+    _debug_info = NULL;
+  }
+
   // Make a reset
   _is_cfunction = true;
   _is_reference = false;
@@ -1897,6 +1952,9 @@ void function_var::_copy_from_var(const I_function_var* data){
     _lc = *data->get_lua_core();
     _func_pointer = data->get_lua_function_pointer();
     _fref = __dm->new_class_dbg<value_ref>(DYNAMIC_MANAGEMENT_DEBUG_DATA, &_lc, FUNCTION_REFERENCE_INTERNAL_DATA, _get_reference_key(_func_pointer).c_str());
+
+    if(data->get_debug_info())
+      _debug_info = __dm->new_class_dbg<function_debug_info>(DYNAMIC_MANAGEMENT_DEBUG_DATA, data->get_debug_info());
 
     return;
   }
@@ -2022,6 +2080,9 @@ bool function_var::from_state(const core* lc, int stack_idx){
   _fref = __dm->new_class_dbg<value_ref>(DYNAMIC_MANAGEMENT_DEBUG_DATA, &_lc, FUNCTION_REFERENCE_INTERNAL_DATA, _get_reference_key(_func_pointer).c_str());
   if(!_fref->reference_initiated())
     _fref->set_value(stack_idx);
+
+  if(!_is_cfunction)
+    _debug_info = _lc.context->api_debug->create_function_debug_info(_lc.istate, stack_idx);
 
   return true;
 }
@@ -2173,7 +2234,7 @@ void function_var::push_to_stack(const core* lc) const{
         _reader_data._this = this;
         _reader_data.current_idx = 0;
 
-      lc->context->api_state->load(lc->istate, _fn_chunk_data_reader, &_reader_data, _fn_binary_name, "b");
+      lc->context->api_state->load(lc->istate, _fn_chunk_data_reader, &_reader_data, _fn_binary_name, "bt");
     }
     else
       _push_by_create_copy = true;
@@ -2325,6 +2386,11 @@ int function_var::run_function(const core* lc, const I_vararr* args, I_vararr* r
 }
 
 
+const I_function_debug_info* function_var::get_debug_info() const{
+  return _debug_info;
+}
+
+
 void function_var::as_copy(){
   if(!is_reference()) // already a copy
     return;
@@ -2462,6 +2528,11 @@ bool function_var_ref::is_reference() const{
 
 int function_var_ref::run_function(const core* lc, const I_vararr* args, I_vararr* results) const{
   return _this_obj->run_function(lc, args, results);
+}
+
+
+const I_function_debug_info* function_var_ref::get_debug_info() const{
+  return _this_obj->get_debug_info();
 }
 
 

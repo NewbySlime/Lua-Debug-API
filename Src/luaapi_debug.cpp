@@ -50,6 +50,14 @@ class _api_debug_function: public I_debug{
     void delete_file_info(I_file_info* obj) override{
       cpplua_delete_file_info(obj);
     }
+
+    I_function_debug_info* create_function_debug_info(void* istate, int stack_idx) override{
+      return cpplua_create_function_debug_info((lua_State*)istate, stack_idx);
+    }
+
+    void delete_function_debug_info(I_function_debug_info* obj) override{
+      cpplua_delete_function_debug_info(obj);
+    }
 };
 
 

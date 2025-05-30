@@ -1,6 +1,7 @@
 #include "luaapi_stack.h"
 #include "luaapi_value.h"
 #include "luaapi_variant_util.h"
+#include "luageneral_usage_runtime.h"
 #include "luamemory_util.h"
 #include "luastack_iter.h"
 #include "luautility.h"
@@ -168,6 +169,25 @@ void lua::set_global(lua_State* state, const char* global_name, I_variant* var){
   core _lc = as_lua_api_core(state);
   var->push_to_stack(&_lc);
   lua_setglobal(state, global_name);
+}
+
+
+variant* lua::load_file_as_function(const char* file_path){
+  lua_State* _gu_runtime = require_general_usage_runtime();
+  lua::api::core _lc = as_lua_api_core(_gu_runtime);
+
+  int _errcode = luaL_loadfile(_gu_runtime, file_path);
+  if(_errcode != LUA_OK){
+    error_var _err_obj(&_lc, -1);
+    lua_pop(_gu_runtime, 1);
+
+    return cpplua_create_var_copy(&_err_obj);
+  }
+
+  variant* _result = to_variant(_gu_runtime, -1);
+  lua_pop(_gu_runtime, 1);
+
+  return _result;
 }
 
 #endif // LUA_CODE_EXISTS

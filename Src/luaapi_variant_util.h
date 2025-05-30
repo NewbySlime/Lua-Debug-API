@@ -20,6 +20,9 @@ namespace lua::api{
 
       virtual void set_global(void* istate, const char* global_name, I_variant* var) = 0;
 
+      // Might return error_var if an error happens.
+      virtual I_variant* load_file_as_function(const char* file_path) = 0;
+
       virtual I_variant* create_variant_copy(const I_variant* var) = 0;
       virtual void delete_variant(const I_variant* var) = 0;
 

@@ -10,6 +10,7 @@
 /// @brief Interface class for string_store class.
 class I_string_store{
   public:
+    virtual void clear() = 0;
     virtual void append(const char* data) = 0;
     virtual void append(const char* data, std::size_t length) = 0;
 };
@@ -23,6 +24,7 @@ class string_store: public I_string_store{
 
     std::string data;
 
+    void clear() override;
     void append(const char* data) override;
     void append(const char* data, std::size_t length) override;
 };
