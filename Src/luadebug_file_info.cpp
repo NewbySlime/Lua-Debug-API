@@ -6,12 +6,11 @@
 #include "luautility.h"
 #include "luavariant_util.h"
 #include "memdynamic_management.h"
+#include "string_util.h"
 
 #include "algorithm"
-
-#if (_WIN64) | (_WIN32)
-#include "Windows.h"
-#endif
+#include "memory.h"
+#include "stdio.h"
 
 // This is used for creating a dummy line at the start of portion of Lua code.
 // Reason for this approach is to mitigate automatically validated line when that portion of the Code is empty.
@@ -224,34 +223,25 @@ void file_info::refresh_info(){
     return;
   }
 
-#if (_WIN64) | (_WIN32)
-  HANDLE _file_handle = CreateFile(
-    _file_path.c_str(),
-    GENERIC_READ,
-    0,
-    NULL,
-    OPEN_EXISTING,
-    0,
-    NULL
-  );
-
-  if(_file_handle == INVALID_HANDLE_VALUE){
-    _set_error_data(LUA_ERRFILE, get_windows_error_message(GetLastError()).c_str());
+  FILE* _file_handle = fopen(_file_path.c_str(), "r");
+  if(!_file_handle){
+    _set_error_data(LUA_ERRFILE, format_str_mem(__dm, "Cannot open file. Err code: {0}", errno).c_str());
     return;
   }
 
-  DWORD _file_size = GetFileSize(_file_handle, NULL);
-  char* _file_buffer = (char*)__dm->malloc(LUA_EMPTY_CODE_FILLER_SIZE+_file_size+1, DYNAMIC_MANAGEMENT_DEBUG_DATA);
-  
-  DWORD _read_len; ReadFile(_file_handle, &_file_buffer[LUA_EMPTY_CODE_FILLER_SIZE], _file_size, &_read_len, NULL);
+  fseek(_file_handle, 0, SEEK_END);
+  size_t _file_size = ftell(_file_handle);
+  fseek(_file_handle, 0, SEEK_SET);
+
+  char* _file_buffer = (char*)__dm->malloc(LUA_EMPTY_CODE_FILLER_SIZE+_file_size, DYNAMIC_MANAGEMENT_DEBUG_DATA);
+
+  size_t _read_len = fread(_file_buffer, 1, _file_size, _file_handle);
   _file_buffer[_read_len+LUA_EMPTY_CODE_FILLER_SIZE] = '\0';
 
   _update_file_info(_file_buffer);
 
   __dm->free(_file_buffer, DYNAMIC_MANAGEMENT_DEBUG_DATA);
-
-  CloseHandle(_file_handle);
-#endif
+  fclose(_file_handle);
 }
 
 

@@ -277,7 +277,13 @@ void thread_control::__thread_entry_point_generalize(_t_entry_point_data* data){
   std::lock_guard _lg_init(data->init_mutex);
 
   thread_control* _this = data->_this;
-  unsigned long _thread_id = data->thread_handle;
+  unsigned long _thread_id = 
+#if (_WIN64) || (_WIN32)
+    GetThreadId(data->thread_handle)
+#else
+    data->thread_handle
+#endif
+  ;
 
   thread_handle* _thread_handle = __dm->new_class_dbg<thread_handle>(DYNAMIC_MANAGEMENT_DEBUG_DATA, data->thread_handle, data->lstate);
   _thandle_tls = _thread_handle;

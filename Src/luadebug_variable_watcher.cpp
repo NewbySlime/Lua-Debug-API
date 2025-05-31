@@ -1,3 +1,4 @@
+#include "error_definition.h"
 #include "dllutil.h"
 #include "library_linking.h"
 #include "luaapi_variant_util.h"
@@ -12,9 +13,8 @@
 #include "std_logger.h"
 #include "string_util.h"
 
-#if (_WIN64) | (_WIN32)
-#include "Windows.h"
-#endif
+#include "mutex"
+
 
 using namespace dynamic_library::util;
 using namespace lua;
@@ -32,9 +32,8 @@ using namespace ::memory;
 static const I_dynamic_management* __dm = get_memory_manager();
 static std::set<comparison_variant>* _internal_variables_list = NULL;
 
-#if (_WIN64) | (_WIN32)
-static CRITICAL_SECTION* _code_mutex = NULL;
-#endif
+std::recursive_mutex* _code_mutex = NULL;
+
 
 static void _code_initiate();
 static void _code_deinitiate();
@@ -45,10 +44,8 @@ static void _unlock_code();
 
 
 static void _code_initiate(){
-  if(!_code_mutex){
-    _code_mutex = (CRITICAL_SECTION*)__dm->malloc(sizeof(CRITICAL_SECTION), DYNAMIC_MANAGEMENT_DEBUG_DATA);
-    InitializeCriticalSection(_code_mutex);
-  }
+  if(!_code_mutex)
+    _code_mutex = new std::recursive_mutex();
 
   if(!_internal_variables_list){
     _internal_variables_list = __dm->new_class_dbg<std::set<comparison_variant>>(DYNAMIC_MANAGEMENT_DEBUG_DATA);
@@ -90,8 +87,7 @@ static void _code_initiate(){
 
 static void _code_deinitiate(){
   if(_code_mutex){
-    DeleteCriticalSection(_code_mutex);
-    __dm->free(_code_mutex, DYNAMIC_MANAGEMENT_DEBUG_DATA);
+    delete _code_mutex;
     _code_mutex = NULL;
   }
 
@@ -103,15 +99,11 @@ static void _code_deinitiate(){
 
 
 void _lock_code(){
-#if (_WIN64) | (_WIN32)
-  EnterCriticalSection(_code_mutex);
-#endif
+  _code_mutex->lock();
 }
 
 void _unlock_code(){
-#if (_WIN64) | (_WIN32)
-  LeaveCriticalSection(_code_mutex);
-#endif
+  _code_mutex->unlock();
 }
 
 
@@ -122,31 +114,20 @@ variable_watcher::variable_watcher(lua_State* state){
   _logger = get_std_logger();
   _state = state;
 
-#if (_WIN64) || (_WIN32)
   _object_mutex_ptr = &_object_mutex;
-  InitializeCriticalSection(_object_mutex_ptr);
-#endif
 }
 
 variable_watcher::~variable_watcher(){
   _clear_variable_data();
-
-#if (_WIN64) || (_WIN32)
-  DeleteCriticalSection(_object_mutex_ptr);
-#endif
 }
 
 
 void variable_watcher::_lock_object() const{
-#if (_WIN64) || (_WIN32)
-  EnterCriticalSection(_object_mutex_ptr);
-#endif
+  _object_mutex_ptr->lock();
 }
 
 void variable_watcher::_unlock_object() const{
-#if (_WIN64) || (_WIN32)
-  LeaveCriticalSection(_object_mutex_ptr);
-#endif
+  _object_mutex_ptr->unlock();
 }
 
 

@@ -9,9 +9,13 @@
 #include "string_store.h"
 
 #include "set"
+#include "stdio.h"
+#include "mutex"
 
 #if (_WIN64) || (_WIN32)
 #include "Windows.h"
+#elif (__linux)
+#include "sys/eventfd.h"
 #endif
 
 
@@ -32,6 +36,9 @@ namespace lua::global{
 #if (_WIN64) || (_WIN32)
       virtual void register_event_read(HANDLE event) = 0;
       virtual void remove_event_read(HANDLE event) = 0;
+#elif (__linux)
+      virtual void register_event_read(int event_object) = 0;
+      virtual void remove_event_read(int event_object) = 0;
 #endif
 
       virtual void* get_lua_interface_state() const = 0;
@@ -44,18 +51,31 @@ namespace lua::global{
     private:
 #if (_WIN64) || (_WIN32)
       std::set<HANDLE> _event_read;
-
-      HANDLE _pipe_write;
-      HANDLE _pipe_read;
-
-      HANDLE _class_mutex;
+#elif (__linux)
+      std::set<int> _event_read;
 #endif
+
+      bool _buffer_filled = false;
+      size_t _start_iteration_index = 0;
+      size_t _iteration_index = 0;
+      size_t _buffer_len = 0;
+      char* _buffer_data = NULL;
+
+      std::recursive_mutex _class_mutex;
+      std::recursive_mutex* _class_mutex_ptr;
 
       I_logger* _logger;
 
       lua_State* _this_state;
 
       void _bind_global_function();
+
+      size_t _remaining_read_buffer();
+      size_t _read_buffer(char* dest, size_t dest_len, bool is_peeking = false);
+      size_t _write_buffer(const char* src, size_t src_len);
+
+      void _lock_object() const;
+      void _unlock_object() const;
 
       static void _set_bind_obj(print_override* obj, lua_State* state);
       static int _on_print_static(lua_State* state);
@@ -81,6 +101,9 @@ namespace lua::global{
 #if (_WIN64) || (_WIN32)
       void register_event_read(HANDLE event) override;
       void remove_event_read(HANDLE event) override;
+#elif (__linux)
+      void register_event_read(int event_object) override;
+      void remove_event_read(int event_object) override;
 #endif
 
       void* get_lua_interface_state() const override;

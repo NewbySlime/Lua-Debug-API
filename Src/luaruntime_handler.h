@@ -82,7 +82,8 @@ namespace lua{
 
       lua::variant* _last_err_obj = NULL;
 
-      unsigned long _current_tid = ERROR_INVALID_THREAD_ID;
+      unsigned long _current_tid;
+      bool _current_tid_valid = false;
 
       void _initiate_constructor();
       void _initiate_class();

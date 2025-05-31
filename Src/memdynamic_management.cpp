@@ -1,7 +1,10 @@
 #include "dllutil.h"
 #include "error_util.h"
 #include "memdynamic_management.h"
+
+#if (_WIN64) || (_WIN32)
 #include "Windows.h"
+#endif
 
 #include "map"
 #include "memory"
@@ -22,47 +25,19 @@ static memory_management_config _config = memory_management_config(_default_mall
 // static nested_class_record* _usage_record_object = NULL; // only used in new and delete operators
 static memory_debug_data _debug_data;
 
-#if (_WIN64) || (_WIN32)
-static DWORD _nested_record_tlsidx = TLS_OUT_OF_INDEXES;
-#endif
+thread_local nested_class_record* _nested_record_tls = NULL;
 
 static void _code_initiate();
-static void _code_deinitiate();
-static destructor_helper _dh(_code_deinitiate);
 
 
-static void _reset_config(){  _config = memory_management_config(_default_malloc, _default_free, _default_realloc, NULL, NULL);
+static void _reset_config(){
+  _config = memory_management_config(_default_malloc, _default_free, _default_realloc, NULL, NULL);
 }
 
 
 static void _code_initiate(){
   if(!_config.f_alloc)
     _reset_config();
-
-#if (_WIN64) || (_WIN32)
-  if(_nested_record_tlsidx == TLS_OUT_OF_INDEXES){
-    _nested_record_tlsidx = TlsAlloc();
-    if(_nested_record_tlsidx == TLS_OUT_OF_INDEXES)
-      goto on_error_winapi;
-  }
-#endif
-
-  return;
-
-#if (_WIN64) || (_WIN32)
-  on_error_winapi:{
-    printf("Error: [memdynamic_management] %s\n", get_windows_error_message(GetLastError()).c_str());
-  return;}
-#endif
-}
-
-static void _code_deinitiate(){
-#if (_WIN64) || (_WIN32)
-  if(_nested_record_tlsidx != TLS_OUT_OF_INDEXES){
-    TlsFree(_nested_record_tlsidx);
-    _nested_record_tlsidx = TLS_OUT_OF_INDEXES;
-  }
-#endif
 }
 
 
@@ -73,25 +48,15 @@ static void _acquire_memlock(bool acquire){
 
 
 static void _add_nested_record(nested_class_record* record){
-  _code_initiate();
-
-  nested_class_record* _crecord = (nested_class_record*)TlsGetValue(_nested_record_tlsidx);
-  record->tail = _crecord;
-  TlsSetValue(_nested_record_tlsidx, record);
+  record->tail = _nested_record_tls;
+  _nested_record_tls = record;
 }
 
 static void _remove_nested_record(){
-  _code_initiate();
-
-  nested_class_record* _record = (nested_class_record*)TlsGetValue(_nested_record_tlsidx);
-  if(!_record)
+  if(!_nested_record_tls)
     return;
 
-  TlsSetValue(_nested_record_tlsidx, _record->tail);
-}
-
-static nested_class_record* _get_current_nested_record(){
-  return (nested_class_record*)TlsGetValue(_nested_record_tlsidx);
+  _nested_record_tls = _nested_record_tls->tail;
 }
 
 
@@ -156,13 +121,11 @@ static void* _realloc(void* target_obj, size_t size, const memory_debug_data* db
 
 
 void* operator new(size_t size){
-  nested_class_record* _record = _get_current_nested_record();
-  return _malloc(size, _record? _record->debug_data: NULL);
+  return _malloc(size, _nested_record_tls? _nested_record_tls->debug_data: NULL);
 }
 
 void operator delete(void* ptr){
-  nested_class_record* _record = _get_current_nested_record();
-  _free(ptr, _record? _record->debug_data: NULL);
+  _free(ptr, _nested_record_tls? _nested_record_tls->debug_data: NULL);
 }
 
 

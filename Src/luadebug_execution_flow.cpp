@@ -9,6 +9,8 @@
 #include "std_logger.h"
 #include "string_util.h"
 
+#include "string.h"
+
 
 using namespace lua;
 using namespace lua::api;
@@ -33,16 +35,7 @@ static const I_dynamic_management* __dm = get_memory_manager();
 execution_flow::execution_flow(hook_handler* hook){
   _logger = get_std_logger();
 
-#if (_WIN64) || (_WIN32)
   _object_mutex_ptr = &_object_mutex;
-  InitializeCriticalSection(_object_mutex_ptr);
-  _execution_block_event = CreateEvent(NULL, false, false, NULL);
-  _self_pause_event = CreateEvent(NULL, false, false, NULL);
-  _self_resume_event = CreateEvent(NULL, false, false, NULL);
-
-  register_event_pausing(_self_pause_event);
-  register_event_resuming(_self_resume_event);
-#endif
 
   _hook_handler = hook;
   _hook_handler->set_hook(LUA_MASKCALL | LUA_MASKRET | LUA_MASKLINE | LUA_MASKCOUNT, _hookcb_static, this);
@@ -64,29 +57,15 @@ execution_flow::~execution_flow(){
 
   if(currently_pausing())
     resume_execution();
-
-#if (_WIN64) || (_WIN32)
-  remove_event_pausing(_self_pause_event);
-  remove_event_resuming(_self_resume_event);
-
-  CloseHandle(_self_pause_event);
-  CloseHandle(_self_resume_event);
-  CloseHandle(_execution_block_event);
-  DeleteCriticalSection(_object_mutex_ptr);
-#endif
 }
 
 
 void execution_flow::_lock_object() const{
-#if (_WIN64) || (_WIN32)
-  EnterCriticalSection(_object_mutex_ptr);
-#endif
+  _object_mutex_ptr->lock();
 }
 
 void execution_flow::_unlock_object() const{
-#if (_WIN64) || (_WIN32)
-  LeaveCriticalSection(_object_mutex_ptr);
-#endif
+  _object_mutex_ptr->unlock();
 }
 
 
@@ -112,17 +91,27 @@ void execution_flow::_block_execution(){
 #if (_WIN64) || (_WIN32)
   for(HANDLE hevent: _event_pausing)
     SetEvent(hevent);
+#elif (__linux)
+  for(int event_object: _event_pausing)
+    eventfd_write(event_object, 1);
 #endif
   _currently_executing = false;
   _unlock_object();
 
-  WaitForSingleObject(_execution_block_event, INFINITE);
+{ // enclosure for scoping
+  std::mutex _m;
+  std::unique_lock _mlock(_m);
+  _execution_block_event.wait(_mlock);
+} // enclosure closing
 
   _lock_object();
   _currently_executing = true;
 #if (_WIN64) || (_WIN32)
   for(HANDLE hevent: _event_resuming)
     SetEvent(hevent);
+#elif (__linux)
+  for(int event_object: _event_resuming)
+    eventfd_write(event_object, 1);
 #endif
   _unlock_object();
 }
@@ -339,15 +328,16 @@ void execution_flow::block_execution(){
 
 void execution_flow::resume_execution(){
   _do_block = false;
-#if (_WIN64) || (_WIN32)
-  SetEvent(_execution_block_event);
-#endif
+  _execution_block_event.notify_all();
 }
 
 void execution_flow::step_execution(step_type st){
   if(_currently_executing){
     block_execution();
-    WaitForSingleObject(_self_pause_event, INFINITE);
+
+    std::mutex _m;
+    std::unique_lock _mlock(_m);
+    _self_pause_event.wait(_mlock);
   }
 
   _do_block = true;
@@ -367,7 +357,7 @@ void execution_flow::step_execution(step_type st){
     }
   }
 
-  SetEvent(_execution_block_event);
+  _execution_block_event.notify_all();
 }
 
 
@@ -452,6 +442,7 @@ void execution_flow::clear_breakpoints(){
 
 
 #if (_WIN64) || (_WIN32)
+
 void execution_flow::register_event_resuming(HANDLE hevent){
   _lock_object();
   _event_resuming.insert(hevent);
@@ -476,6 +467,33 @@ void execution_flow::remove_event_pausing(HANDLE hevent){
   _event_pausing.erase(hevent);
   _unlock_object();
 }
+
+#elif (__linux)
+
+void execution_flow::register_event_resuming(int event_object){
+  _lock_object();
+  _event_resuming.insert(event_object);
+  _unlock_object();
+}
+
+void execution_flow::remove_event_resuming(int event_object){
+  _lock_object();
+  _event_resuming.erase(event_object);
+  _unlock_object();
+}
+
+void execution_flow::register_event_pausing(int event_object){
+  _lock_object();
+  _event_pausing.insert(event_object);
+  _unlock_object();
+}
+
+void execution_flow::remove_event_pausing(int event_object){
+  _lock_object();
+  _event_pausing.erase(event_object);
+  _unlock_object();
+}
+
 #endif
 
 

@@ -204,6 +204,7 @@ bool runtime_handler::run_code(){
   if(currently_running())
     return false;
 
+  _current_tid_valid = true;
   _current_tid = _thread_control->run_execution([](void* data){
     thread_handle* _this_thread = get_thread_handle();
 
@@ -227,7 +228,7 @@ bool runtime_handler::run_code(){
 }
 
 bool runtime_handler::currently_running() const{
-  if(!_state || _current_tid == ERROR_INVALID_THREAD_ID)
+  if(!_state || !_current_tid_valid)
     return false;
 
   I_thread_handle_reference* _ref = _thread_control->get_thread_handle(_current_tid);
@@ -240,7 +241,7 @@ bool runtime_handler::currently_running() const{
 }
 
 bool runtime_handler::stop_running(){
-  if(!_state)
+  if(!_state || !_current_tid_valid)
     return false;
 
   I_thread_handle_reference* _ref = _thread_control->get_thread_handle(_current_tid);
@@ -248,12 +249,14 @@ bool runtime_handler::stop_running(){
     return false;
 
   _ref->get_interface()->stop_running();
+  _current_tid_valid = false;
+
   return true;
 }
 
 unsigned long runtime_handler::get_main_thread_id() const{
   if(!_state || !currently_running())
-    return ERROR_INVALID_THREAD_ID;
+    return 0;
 
   return _current_tid;
 }

@@ -1,5 +1,8 @@
 #include "string_util.h"
 
+#include "limits.h"
+#include "stdint.h"
+
 
 // termination filter
 typedef bool (*term_filter)(char ch);

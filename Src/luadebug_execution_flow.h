@@ -17,6 +17,8 @@
 
 #if (_WIN64) || (_WIN32)
 #include "Windows.h"
+#elif (__linux)
+#include "sys/eventfd.h"
 #endif
 
 
@@ -73,7 +75,13 @@ namespace lua::debug{
 
       virtual void register_event_pausing(HANDLE hevent) = 0;
       virtual void remove_event_pausing(HANDLE hevent) = 0;
-#endif 
+#elif (__linux)
+      virtual void register_event_resuming(int event_object) = 0;
+      virtual void remove_event_resuming(int event_object) = 0;
+      
+      virtual void register_event_pausing(int event_object) = 0;
+      virtual void remove_event_pausing(int event_object) = 0;
+#endif
 
       // Returns NULL if still executing.
       virtual const lua_Debug* get_debug_data() const = 0;
@@ -115,17 +123,22 @@ namespace lua::debug{
 
       std::map<std::string, _file_metadata*> _file_metadata_map;
 
+      std::recursive_mutex _object_mutex;
+      std::recursive_mutex* _object_mutex_ptr;
+
+      std::condition_variable _execution_block_event;
+      std::condition_variable _self_resume_event;
+      std::condition_variable _self_pause_event;
 
 #if (_WIN64) || (_WIN32)
-      CRITICAL_SECTION _object_mutex;
-      CRITICAL_SECTION* _object_mutex_ptr;
-      HANDLE _execution_block_event;
-
-      HANDLE _self_resume_event;
-      HANDLE _self_pause_event;
-
       // events
       std::set<HANDLE> 
+        _event_resuming,
+        _event_pausing
+      ;
+#elif (__linux)
+      // events
+      std::set<int>
         _event_resuming,
         _event_pausing
       ;
@@ -176,6 +189,12 @@ namespace lua::debug{
 
       void register_event_pausing(HANDLE hevent) override;
       void remove_event_pausing(HANDLE hevent) override;
+#elif (__linux)
+      void register_event_resuming(int event_object) override;
+      void remove_event_resuming(int event_object) override;
+
+      void register_event_pausing(int event_object) override;
+      void remove_event_pausing(int event_object) override;
 #endif
 
       const lua_Debug* get_debug_data() const override;

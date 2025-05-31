@@ -3,15 +3,15 @@
 #include "luamemory_util.h"
 #include "luavariant.h"
 #include "luavariant_util.h"
+#include "memory.h"
 #include "std_logger.h"
 #include "string_util.h"
 
+
 #define LUD_PRINT_OVERRIDE_VAR_NAME "__clua_print_override"
 
-#if (_WIN64) || (_WIN32)
-#define __LOCK_MUTEX(obj) WaitForSingleObject(obj, INFINITE)
-#define __RELEASE_MUTEX(obj) ReleaseMutex(obj) 
-#endif
+#define BUFFER_SIZE 0x10000
+
 
 using namespace lua;
 using namespace lua::global;
@@ -30,10 +30,7 @@ print_override::print_override(lua_State* state){
   _this_state = NULL;
   _logger = get_std_logger();
 
-#if (_WIN64) || (_WIN32)
-  _pipe_read = NULL;
-  _pipe_write = NULL;
-#endif
+  _class_mutex_ptr = &_class_mutex;
 
   print_override* _current_obj = get_attached_object(state);
   if(_current_obj){
@@ -44,11 +41,10 @@ print_override::print_override(lua_State* state){
   _this_state = state;
   _set_bind_obj(this, _this_state);
 
-#if (_WIN64) || (_WIN32)
-  CreatePipe(&_pipe_read, &_pipe_write, NULL, 0);
-
-  _class_mutex = CreateMutex(NULL, FALSE, NULL);
-#endif
+  _buffer_data = (char*)malloc(BUFFER_SIZE);
+  _buffer_len = BUFFER_SIZE;
+  if(!_buffer_data)
+    _logger->print_warning(format_str_mem(__dm, "Cannot create buffer.").c_str());
 
   _bind_global_function();
 }
@@ -59,12 +55,10 @@ print_override::~print_override(){
 
   _set_bind_obj(NULL, _this_state);
   
-#if (_WIN64) || (_WIN32)
-  CloseHandle(_pipe_write);
-  CloseHandle(_pipe_read);
-
-  CloseHandle(_class_mutex);
-#endif
+  if(_buffer_data){
+    free(_buffer_data);
+    _buffer_data = NULL;
+  }
 }
 
 
@@ -73,6 +67,94 @@ void print_override::_bind_global_function(){
   lua_pushcclosure(_this_state, _on_print_static, 0);
   lua_setfield(_this_state, -2, "print");
   lua_pop(_this_state, 1);
+}
+
+
+size_t print_override::_remaining_read_buffer(){
+  if(!_buffer_data)
+    return 0;
+
+  if(!_buffer_filled)
+    return 0;
+
+  if(_start_iteration_index >= _iteration_index)
+    return _iteration_index + (_buffer_len-_start_iteration_index);
+
+  return _iteration_index-_start_iteration_index;
+}
+
+size_t print_override::_read_buffer(char* dest, size_t dest_len, bool is_peeking){
+  if(!_buffer_data)
+    return 0;
+
+  size_t _previous_iteration_idx = _start_iteration_index;
+  bool _previous_buffer_filled = _buffer_filled;
+
+  if(!_buffer_filled)
+    return 0;
+
+  size_t _read_idx = 0;
+  while(_read_idx < dest_len){
+    size_t _buffer_remaining = _buffer_len-_start_iteration_index;
+    if(_start_iteration_index < _iteration_index)
+      _buffer_remaining = _iteration_index-_start_iteration_index;
+    
+    size_t _read_remaining = dest_len-_read_idx;
+
+    size_t _read_len = min(_buffer_remaining, _read_remaining);
+    memcpy(&dest[_read_idx], &_buffer_data[_start_iteration_index], _read_len);
+
+    if(_start_iteration_index < _iteration_index && _start_iteration_index+_read_len >= _iteration_index)
+      _buffer_filled = false;
+
+    _read_idx += _read_len;
+    _start_iteration_index += _read_len;
+
+    // reset the index
+    _start_iteration_index = _start_iteration_index%_buffer_len;
+  }
+
+  if(is_peeking){
+    _start_iteration_index = _previous_iteration_idx;
+    _buffer_filled = _previous_buffer_filled;
+  }
+
+  return _read_idx;
+}
+
+size_t print_override::_write_buffer(const char* src, size_t src_len){
+  if(!_buffer_data)
+    return 0;
+
+  size_t _write_idx = 0;
+  while(_write_idx < src_len){
+    size_t _buffer_remaining = _buffer_len-_iteration_index;
+    size_t _write_remaining = src_len-_write_idx;
+
+    size_t _write_len = min(_buffer_remaining, _write_remaining);
+    memcpy(&_buffer_data[_iteration_index], &src[_write_idx], _write_len);
+
+    if(_buffer_filled && _start_iteration_index == _iteration_index)
+      _start_iteration_index += _write_idx;
+
+    _write_idx += _write_len;
+    _iteration_index += _write_len;
+
+    // reset the index
+    _iteration_index = _iteration_index%_buffer_len;
+    _buffer_filled = true;
+  }
+
+  return _write_idx;
+}
+
+
+void print_override::_lock_object() const{
+  _class_mutex_ptr->lock();
+}
+
+void print_override::_unlock_object() const{
+  _class_mutex_ptr->unlock();
 }
 
 
@@ -105,22 +187,19 @@ int print_override::_on_print_static(lua_State* state){
 
   _combined_message += "\n";
 
-  __LOCK_MUTEX(_obj->_class_mutex);
+  _obj->_lock_object();
 
+  _obj->_write_buffer(_combined_message.c_str(), _combined_message.size());  
+  
 #if (_WIN64) || (_WIN32)
-  WriteFile(
-    _obj->_pipe_write,
-    _combined_message.c_str(),
-    _combined_message.size(),
-    NULL,
-    NULL
-  );
-
   for(HANDLE _event_obj: _obj->_event_read)
     SetEvent(_event_obj);
+#elif (__linux)
+  for(int _event_obj: _obj->_event_read)
+    eventfd_write(_event_obj, 1);
 #endif
 
-  __RELEASE_MUTEX(_obj->_class_mutex);
+  _obj->_unlock_object();
 
   return 0;
 }
@@ -142,21 +221,9 @@ print_override* print_override::get_attached_object(lua_State* state){
 
 
 unsigned long print_override::read_n(char* buffer, unsigned long buffer_size){
-  unsigned long _result = 0;
-
-  __LOCK_MUTEX(_class_mutex);
-
-#if (_WIN64) || (_WIN32)
-  ReadFile(
-    _pipe_read,
-    buffer,
-    buffer_size,
-    &_result,
-    NULL
-  );
-#endif
-
-  __RELEASE_MUTEX(_class_mutex);
+  _lock_object();
+  unsigned long _result = _read_buffer(buffer, buffer_size);
+  _unlock_object();
 
   return _result;
 }
@@ -169,20 +236,9 @@ unsigned long print_override::read_all(I_string_store* store){
 
   char* _tmp_buf = (char*)__dm->malloc(_data_len, DYNAMIC_MANAGEMENT_DEBUG_DATA);
 
-  __LOCK_MUTEX(_class_mutex);
-
-#if (_WIN64) || (_WIN32)
-  unsigned long _read_len;
-  ReadFile(
-    _pipe_read,
-    _tmp_buf,
-    _data_len,
-    &_read_len,
-    NULL
-  );
-#endif
-
-  __RELEASE_MUTEX(_class_mutex);
+  _lock_object();
+  unsigned long _read_len = _read_buffer(_tmp_buf, _data_len);
+  _unlock_object();
   
   store->append(_tmp_buf, _read_len);
 
@@ -194,21 +250,9 @@ std::string print_override::read_all(){
   unsigned long _data_len = available_bytes();
   char* _tmp_buf = (char*)__dm->malloc(_data_len, DYNAMIC_MANAGEMENT_DEBUG_DATA);
 
-  unsigned long _read_len;
-
-  __LOCK_MUTEX(_class_mutex);
-  
-#if (_WIN64) || (_WIN32)
-  ReadFile(
-    _pipe_read,
-    _tmp_buf,
-    _data_len,
-    &_read_len,
-    NULL
-  );
-#endif
-
-  __RELEASE_MUTEX(_class_mutex);
+  _lock_object();
+  unsigned long _read_len = _read_buffer(_tmp_buf, _data_len);
+  _unlock_object();
 
   std::string _result = std::string(_tmp_buf, _read_len);
 
@@ -218,22 +262,9 @@ std::string print_override::read_all(){
 
 
 unsigned long print_override::peek_n(char* buffer, unsigned long buffer_size){
-  unsigned long _result = 0;
-
-  __LOCK_MUTEX(_class_mutex);
-
-#if (_WIN64) || (_WIN32)
-  PeekNamedPipe(
-    _pipe_read,
-    buffer,
-    buffer_size,
-    &_result,
-    NULL,
-    NULL
-  );
-#endif
-
-  __RELEASE_MUTEX(_class_mutex);
+  _lock_object();
+  unsigned long _result = _read_buffer(buffer, buffer_size, true);
+  _unlock_object();
 
   return _result;
 }
@@ -243,22 +274,9 @@ unsigned long print_override::peek_all(I_string_store* store){
   unsigned long _data_len = available_bytes();
   char* _tmp_buf = (char*)__dm->malloc(_data_len, DYNAMIC_MANAGEMENT_DEBUG_DATA);
 
-  unsigned long _read_len;
-
-  __LOCK_MUTEX(_class_mutex);
-
-#if (_WIN64) || (_WIN32)
-  PeekNamedPipe(
-    _pipe_read,
-    _tmp_buf,
-    _data_len,
-    &_read_len,
-    NULL,
-    NULL
-  );
-#endif
-
-  __RELEASE_MUTEX(_class_mutex);
+  _lock_object();
+  unsigned long _read_len = _read_buffer(_tmp_buf, _data_len, true);
+  _unlock_object();
 
   store->append(_tmp_buf, _read_len);
 
@@ -270,21 +288,9 @@ std::string print_override::peek_all(){
   unsigned long _data_len = available_bytes();
   char* _tmp_buf = (char*)__dm->malloc(_data_len, DYNAMIC_MANAGEMENT_DEBUG_DATA);
 
-  __LOCK_MUTEX(_class_mutex);
-  
-#if (_WIN64) || (_WIN32)
-  unsigned long _read_len;
-  PeekNamedPipe(
-    _pipe_read,
-    _tmp_buf,
-    _data_len,
-    &_read_len,
-    NULL,
-    NULL
-  );
-#endif
-
-  __RELEASE_MUTEX(_class_mutex);
+  _lock_object();
+  unsigned long _read_len = _read_buffer(_tmp_buf, _data_len, true);
+  _unlock_object();
   
   std::string _result = std::string(_tmp_buf, _read_len);
 
@@ -294,35 +300,38 @@ std::string print_override::peek_all(){
 
 
 unsigned long print_override::available_bytes(){
-  unsigned long _result;
-
-#if (_WIN64) || (_WIN32)
-  PeekNamedPipe(
-    _pipe_read,
-    NULL,
-    0,
-    NULL,
-    &_result,
-    NULL
-  );
-#endif
-
-  return _result;
+  return _remaining_read_buffer();
 }
 
 
 #if (_WIN64) || (_WIN32)
+
 void print_override::register_event_read(HANDLE event){
-  __LOCK_MUTEX(_class_mutex);
+  _lock_object();
   _event_read.insert(event);
-  __RELEASE_MUTEX(_class_mutex);
+  _unlock_object();
 }
 
 void print_override::remove_event_read(HANDLE event){
-  __LOCK_MUTEX(_class_mutex);
+  _lock_object();
   _event_read.erase(event);
-  __RELEASE_MUTEX(_class_mutex);
+  _unlock_object();
 }
+
+#elif (__linux)
+
+void print_override::register_event_read(int event_object){
+  _lock_object();
+  _event_read.insert(event_object);
+  _unlock_object();
+}
+
+void print_override::remove_event_read(int event_object){
+  _lock_object();
+  _event_read.erase(event_object);
+  _unlock_object();
+}
+
 #endif
 
 
@@ -332,9 +341,9 @@ void* print_override::get_lua_interface_state() const{
 
 
 void print_override::set_logger(I_logger* logger){
-  __LOCK_MUTEX(_class_mutex);
+  _lock_object();
   _logger = logger;
-  __RELEASE_MUTEX(_class_mutex);
+  _unlock_object();
 }
 
 

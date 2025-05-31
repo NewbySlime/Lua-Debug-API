@@ -1,7 +1,7 @@
 #include "dllutil.h"
 #include "luamemory_util.h"
 #include "memory"
-#include "Windows.h"
+
 
 using namespace dynamic_library::util;
 using namespace lua::memory;

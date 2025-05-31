@@ -7,12 +7,9 @@
 #include "luavariant.h"
 #include "macro_helper.h"
 
+#include "mutex"
 #include "set"
 #include "vector"
-
-#if (_WIN64) || (_WIN32)
-#include "Windows.h"
-#endif
 
 
 // NOTE: since the introduction of thread dependent state system, every usage of the bound state will always be that state (of a thread) regardless which thread are calling it. It works by locking a state and then disabling the system for a moment.
@@ -97,10 +94,8 @@ namespace lua::debug{
 
       lua::error_var* _current_error = NULL;
 
-#if (_WIN64) || (_WIN32)
-      CRITICAL_SECTION _object_mutex;
-      CRITICAL_SECTION* _object_mutex_ptr;
-#endif
+      std::recursive_mutex _object_mutex;
+      std::recursive_mutex* _object_mutex_ptr = NULL;
 
 
       void _lock_object() const;
