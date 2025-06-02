@@ -1,3 +1,4 @@
+#include "defines.h"
 #include "luaglobal_print_override.h"
 #include "luainternal_storage.h"
 #include "luamemory_util.h"
@@ -34,7 +35,7 @@ print_override::print_override(lua_State* state){
 
   print_override* _current_obj = get_attached_object(state);
   if(_current_obj){
-    _logger->print(format_str_mem(__dm, "Cannot create print_override. Reason: lua_State already has print_override.\n").c_str());
+    _logger->print("Cannot create print_override. Reason: lua_State already has print_override.\n");
     return;
   }
 
@@ -44,7 +45,7 @@ print_override::print_override(lua_State* state){
   _buffer_data = (char*)malloc(BUFFER_SIZE);
   _buffer_len = BUFFER_SIZE;
   if(!_buffer_data)
-    _logger->print_warning(format_str_mem(__dm, "Cannot create buffer.").c_str());
+    _logger->print_warning("Cannot create buffer.\n");
 
   _bind_global_function();
 }

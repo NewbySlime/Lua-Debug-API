@@ -1,9 +1,20 @@
 #ifndef ERROR_DEFINITION_HEADER
 #define ERROR_DEFINITION_HEADER
 
+#if (_WIN64) || (_WIN32)
+
+// This will use Windows error definition
+
+#else
 
 #define ERROR_NOT_FOUND 0x10001
 #define ERROR_INVALID_FUNCTION 0x10002
 #define ERROR_INVALID_PARAMETER 0x10003
+#define ERROR_BAD_ARGUMENTS 0x10004
+#define ERROR_INVALID_HANDLE 0x10005
+#define ERROR_HANDLE_EOF 0x10006
+#define ERROR_BAD_FORMAT 0x10007
+
+#endif
 
 #endif

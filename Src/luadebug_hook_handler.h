@@ -7,10 +7,7 @@
 #include "macro_helper.h"
 
 #include "map"
-
-#if (_WIN64) || (_WIN32)
-#include "Windows.h"
-#endif
+#include "mutex"
 
 
 #define LUADEBUG_DEFAULTHOOKCOUNT 3
@@ -66,10 +63,8 @@ namespace lua::debug{
 
       int count;
 
-#if (_WIN64) || (_WIN32)
-      CRITICAL_SECTION _object_mutex;
-      CRITICAL_SECTION* _object_mutex_ptr;
-#endif
+      std::recursive_mutex _object_mutex;
+      std::recursive_mutex* _object_mutex_ptr;
 
       void _lock_object() const;
       void _unlock_object() const;

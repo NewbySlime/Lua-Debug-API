@@ -33,9 +33,9 @@ using namespace ::memory;
 static const I_dynamic_management* __dm = get_memory_manager();
 static std::map<void*, hook_handler*>* _hook_lists;
 
-#if (_WIN64) || (_WIN32)
-static CRITICAL_SECTION* _code_mutex;  
-#endif
+
+static std::recursive_mutex* _code_mutex = NULL;
+
 
 static void _code_initiate();
 static void _code_deinitiate();
@@ -43,12 +43,9 @@ static destructor_helper _dh(_code_deinitiate);
 
 
 static void _code_initiate(){
-#if (_WIN64) || (_WIN32)
   if(!_code_mutex){
-    _code_mutex = (CRITICAL_SECTION*)__dm->malloc(sizeof(CRITICAL_SECTION), DYNAMIC_MANAGEMENT_DEBUG_DATA);
-    InitializeCriticalSection(_code_mutex);
+    _code_mutex = __dm->new_class_dbg<std::recursive_mutex>(DYNAMIC_MANAGEMENT_DEBUG_DATA);
   }
-#endif
 
   if(!_hook_lists)
     _hook_lists = __dm->new_class_dbg<std::map<void*, hook_handler*>>(DYNAMIC_MANAGEMENT_DEBUG_DATA);
@@ -60,26 +57,19 @@ static void _code_deinitiate(){
     _hook_lists = NULL;
   }
 
-#if (_WIN64) || (_WIN32)
   if(_code_mutex){
-    DeleteCriticalSection(_code_mutex);
-    __dm->free(_code_mutex, DYNAMIC_MANAGEMENT_DEBUG_DATA);
+    __dm->delete_class_dbg(_code_mutex, DYNAMIC_MANAGEMENT_DEBUG_DATA);
     _code_mutex = NULL;
   }
-#endif
 }
 
 
 static void _lock_code(){
-#if (_WIN64) || (_WIN32)
-  EnterCriticalSection(_code_mutex);
-#endif
+  _code_mutex->lock();
 }
 
 static void _unlock_code(){
-#if (_WIN64) || (_WIN32)
-  LeaveCriticalSection(_code_mutex);
-#endif
+  _code_mutex->unlock();
 }
 
 
@@ -87,10 +77,7 @@ static void _unlock_code(){
 hook_handler::hook_handler(lua_State* state, int count){
   _code_initiate();
 
-#if (_WIN64) || (_WIN32)
   _object_mutex_ptr = &_object_mutex;
-  InitializeCriticalSection(_object_mutex_ptr);
-#endif
 
   _logger = get_std_logger();
   _this_state = state;
@@ -115,23 +102,15 @@ hook_handler::~hook_handler(){
   _count_hook_set.clear();
   _update_hook_config();
   _unlock_object();
-
-#if (_WIN64) || (_WIN32)
-  DeleteCriticalSection(_object_mutex_ptr);
-#endif
 }
 
 
 void hook_handler::_lock_object() const{
-#if (_WIN64) || (_WIN32)
-  EnterCriticalSection(_object_mutex_ptr);
-#endif
+  _object_mutex_ptr->lock();
 }
 
 void hook_handler::_unlock_object() const{
-#if (_WIN64) || (_WIN32)
-  LeaveCriticalSection(_object_mutex_ptr);
-#endif
+  _object_mutex_ptr->unlock();
 }
 
 

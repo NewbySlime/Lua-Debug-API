@@ -15,6 +15,10 @@
 
 #include "mutex"
 
+#if (_WIN64) || (_WIN32)
+#include "Windows.h"
+#endif
+
 
 using namespace dynamic_library::util;
 using namespace lua;
@@ -45,7 +49,7 @@ static void _unlock_code();
 
 static void _code_initiate(){
   if(!_code_mutex)
-    _code_mutex = new std::recursive_mutex();
+    _code_mutex = __dm->new_class_dbg<std::recursive_mutex>(DYNAMIC_MANAGEMENT_DEBUG_DATA);
 
   if(!_internal_variables_list){
     _internal_variables_list = __dm->new_class_dbg<std::set<comparison_variant>>(DYNAMIC_MANAGEMENT_DEBUG_DATA);
@@ -87,7 +91,7 @@ static void _code_initiate(){
 
 static void _code_deinitiate(){
   if(_code_mutex){
-    delete _code_mutex;
+    __dm->delete_class_dbg(_code_mutex, DYNAMIC_MANAGEMENT_DEBUG_DATA);
     _code_mutex = NULL;
   }
 

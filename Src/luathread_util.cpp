@@ -188,43 +188,23 @@ static const fdata _lua_mutex_functions[] = {
 class _lua_mutex: public I_mutex, public function_store, virtual public I_object{
   private:
     lua_State* _state;
-#if (_WIN64) || (_WIN32)
-    HANDLE _object_mutex;
-#elif (__linux)
-    pthread_mutex_t _object_mutex = PTHREAD_MUTEX_INTIIALIZER;
-#endif
+    std::recursive_mutex _mutex;
 
   public:
     _lua_mutex(lua_State* state): function_store(_def_lua_mutex_destructor){
       set_function_data(_lua_mutex_functions);
-
-#if (_WIN64) || (_WIN32)
-      _object_mutex = CreateMutex(NULL, false, NULL);
-#endif
       _state = state;
     }
 
-    ~_lua_mutex(){
-#if (_WIN64) || (_WIN32)
-      CloseHandle(_object_mutex);
-#endif
-    }
+    ~_lua_mutex(){}
 
 
     void lock() override{
-#if (_WIN64) || (_WIN32)
-      WaitForSingleObject(_object_mutex, INFINITE);
-#elif (__linux)
-      pthread_mutex_lock(_object_mutex);
-#endif
+      _mutex.lock();
     }
 
     void unlock() override{
-#if (_WIN64) || (_WIN32)
-      ReleaseMutex(_object_mutex);
-#elif (__linux)
-      pthread_mutex_unlock(_object_mutex);
-#endif
+      _mutex.unlock();
     }
 
 

@@ -8,6 +8,9 @@
 #include "luavariant.h"
 #include "macro_helper.h"
 #include "memdynamic_management.h"
+
+#include "functional"
+#include "mutex"
 #include "stdio.h"
 
 #if (_WIN64) || (_WIN32)
@@ -82,11 +85,9 @@ namespace lua::library{
 
       lua::error_var* _last_error = NULL;
 
-#if (_WIN64) || (_WIN32)
-      CRITICAL_SECTION* _object_mutex_ptr;
-      CRITICAL_SECTION _object_mutex;
-#endif
-
+      std::recursive_mutex _object_mutex;
+      std::recursive_mutex* _object_mutex_ptr;
+      
       void _clear_error();
       void _set_last_error(long long err_code, const I_variant* err_obj);
       void _set_last_error(long long err_code, const std::string& err_msg);
@@ -158,14 +159,18 @@ namespace lua::library{
   // [Thread-Safe]
   class I_file_handler: virtual public I_object{
     public:
+      // This operation can be loosely refered to C fopen opening modes.
       enum open_op{
         open_read             = 0b0000000,
         open_write            = 0b0000001,
 
-        // can read or write, but seperate from actual operation code
+        // Can read or write, but seperate from actual operation code
+        // This is same as '+' operation mode.
         open_special          = 0b0000010,
 
+        // [DEPRECATED]
         open_preserve         = 0b0000100,
+        // open_read or open_write will be ignored if this flag is enabled.
         open_append           = 0b0001000,
 
         open_binary           = 0b0010000,
@@ -216,17 +221,23 @@ namespace lua::library{
     private:
       int _op_code;
 
+      // TODO check if _file_object is in windows environment and using pipes
 #if (_WIN64) || (_WIN32)
+      // This HANDLE will only be used when using pipes in Windows environment.
       HANDLE _hfile = NULL; // also used as pipe write
-
-      bool _is_pipe_handle = true;
-      bool _own_handle = true;
-
-      CRITICAL_SECTION* _object_mutex_ptr;
-      CRITICAL_SECTION _object_mutex;
+#elif (__linux)
+      int _pipe_handle;
+      bool _pipe_handle_valid = false;
 #endif
 
-      long _minimal_write_offset = 0;
+      FILE* _file_object = NULL;
+
+      bool _is_pipe_handle = true;
+      bool _is_pipe_handle_os_specific = false;
+      bool _own_handle = true;
+
+      std::recursive_mutex _object_mutex;
+      std::recursive_mutex* _object_mutex_ptr;
 
       buffering_mode _buffering_mode = buffering_none;
 
@@ -235,6 +246,8 @@ namespace lua::library{
       lua::error_var* _last_error = NULL;
 
       std::string _file_path;
+
+      std::string _temporary_buffer;
 
       // NOTE: Reason for using metadata (reference) table is to pass it as the upvalues of the callbacks of certain iterating functions.
       //  By using reference, whenever the actual object is deleted, the referenced table's data can be cleared. Hence preventing it to run using NULL object.
@@ -249,6 +262,7 @@ namespace lua::library{
 
       void _clear_error();
       void _set_last_error(long long err_code, const std::string& err_msg);
+      void _update_last_ferror();
 #if (_WIN64) || (_WIN32)
       void _update_last_error_winapi();
 #endif
@@ -258,15 +272,19 @@ namespace lua::library{
       // prefered calling sequence: _delete_object_table -> _delete_object_metadata
       void _delete_object_table();
 
+      typedef std::function<bool(char)> char_filter_function; 
+
       // filter to skip
-      void _skip_str(bool(*filter_cb)(char ch));
+      void _skip_str(char_filter_function filter_cb);
+      // If buffer parameter is NULL, this will function as just exhausting the file object until buflen or filter_cb is true.
       // filter to stop read
       // NOTE: the function will insert null-termination character, (buffer) should at least larger than (buflen) by 1.
       // Returns -1 if the file has reached end of file
-      int _read_str(char* buffer, size_t buflen, bool(*filter_cb)(char ch) = NULL);
+      int _read_str(char* buffer, size_t buflen, char_filter_function filter_cb = NULL, bool skip_if_empty = false);
 
+      // [DEPRECATED] Already handled by standard file handling c.
       // This function is used for appending mode (constrained by _minimal_write_offset).
-      void _check_write_pos();
+      // void _check_write_pos();
 
       void _fill_error_with_last(I_vararr* result);
 
@@ -276,8 +294,12 @@ namespace lua::library{
 
     public:
       file_handler(const lua::api::core* lua_core, const std::string& path, int op = open_read);
+      // Don't expose this in any way, stdio version of the DLL user might be different from the DLL file.
+      file_handler(const lua::api::core* lua_core, FILE* pipe_handle, bool is_output);
 #if (_WIN64) || (_WIN32)
       file_handler(const lua::api::core* lua_core, HANDLE pipe_handle, bool is_output = true);
+#elif (__linux)
+      file_handler(const lua::api::core* lua_core, int pipe_handle, bool is_output = true);
 #endif
       ~file_handler();
 
@@ -333,10 +355,14 @@ namespace lua::library{
     const char* path;
     int open_mode = I_file_handler::open_read;
 
+    // NOTE: these pipe handles will not be closed when the end of file_handle lifetime.
 #if (_WIN64) || (_WIN32)
     HANDLE pipe_handle;
-    bool is_output = true;
+#elif (__linux)
+    int pipe_handle;
 #endif
+
+    bool is_output = true;
   };
 }
 

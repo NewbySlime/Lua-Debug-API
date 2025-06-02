@@ -9,11 +9,8 @@
 #include "../LuaSrc/lstate.h"
 
 #include "map"
+#include "mutex"
 #include "set"  
-
-#if (_WIN64) || (_WIN32)
-#include "Windows.h"
-#endif
 
 
 using namespace dynamic_library::util;
@@ -32,9 +29,7 @@ static I_dynamic_management* __dm = get_memory_manager();
 
 static metadata_mapping* _metadata_data = NULL;
 
-#if (_WIN64) || (_WIN32)
-static CRITICAL_SECTION* _code_mutex = NULL;
-#endif
+static std::recursive_mutex* _code_mutex = NULL;
 
 static void _lock_code();
 static void _unlock_code();
@@ -48,12 +43,8 @@ static void _code_initiate(){
   if(!_metadata_data)
     _metadata_data = __dm->new_class_dbg<metadata_mapping>(DYNAMIC_MANAGEMENT_DEBUG_DATA);
   
-#if (_WIN64) || (_WIN32)
-  if(!_code_mutex){
-    _code_mutex = (CRITICAL_SECTION*)__dm->malloc(sizeof(CRITICAL_SECTION), DYNAMIC_MANAGEMENT_DEBUG_DATA);
-    InitializeCriticalSection(_code_mutex);
-  }
-#endif
+  if(!_code_mutex)
+    _code_mutex = __dm->new_class_dbg<std::recursive_mutex>(DYNAMIC_MANAGEMENT_DEBUG_DATA);
 }
 
 static void _code_deinitiate(){
@@ -67,26 +58,19 @@ static void _code_deinitiate(){
     _unlock_code();
   }
 
-#if (_WIN64) || (_WIN32)
   if(_code_mutex){
-    DeleteCriticalSection(_code_mutex);
-    __dm->free(_code_mutex, DYNAMIC_MANAGEMENT_DEBUG_DATA);
+    __dm->delete_class_dbg(_code_mutex, DYNAMIC_MANAGEMENT_DEBUG_DATA);
     _code_mutex = NULL;
   }
-#endif
 }
 
 
 static void _lock_code(){
-#if (_WIN64) || (_WIN32)
-  EnterCriticalSection(_code_mutex);
-#endif
+  _code_mutex->lock();
 }
 
 static void _unlock_code(){
-#if (_WIN64) || (_WIN32)
-  LeaveCriticalSection(_code_mutex);
-#endif
+  _code_mutex->unlock();
 }
 
 
@@ -102,17 +86,11 @@ class metadata: public I_metadata, public lua::object::function_store, virtual p
   private:
     std::map<std::string, lua::I_object*> _obj_data;
 
-#if (_WIN64) || (_WIN32)
-    CRITICAL_SECTION _mutex;
-#endif
+    std::recursive_mutex _mutex;
 
   public:
     metadata(lua_State* state): function_store(_def_destructor_metadata){
       set_function_data(_metadata_functions);
-
-#if (_WIN64) || (_WIN32)
-      InitializeCriticalSection(&_mutex);
-#endif
     }
     
     ~metadata(){
@@ -123,10 +101,6 @@ class metadata: public I_metadata, public lua::object::function_store, virtual p
       _obj_data.clear();
       for(auto _iter: _delete_obj)
         _iter->get_this_destructor()(_iter);
-
-#if (_WIN64) || (_WIN32)
-      DeleteCriticalSection(&_mutex);
-#endif
     }
 
 
@@ -157,15 +131,11 @@ class metadata: public I_metadata, public lua::object::function_store, virtual p
 
 
     void lock_metadata() override{
-#if (_WIN64) || (_WIN32)
-      EnterCriticalSection(&_mutex);
-#endif
+      _mutex.lock();
     }
 
     void unlock_metadata() override{
-#if (_WIN64) || (_WIN32)
-      LeaveCriticalSection(&_mutex);
-#endif
+      _mutex.unlock();
     }
 
 

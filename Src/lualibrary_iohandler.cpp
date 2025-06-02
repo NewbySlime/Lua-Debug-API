@@ -1,4 +1,6 @@
+#include "defines.h"
 #include "dllutil.h"
+#include "error_definition.h"
 #include "error_util.h"
 #include "luaapi_object_util.h"
 #include "luaapi_util.h"
@@ -17,10 +19,14 @@
 #include "chrono"
 #include "memory"
 #include "set"
+#include "string.h"
 
 #if (_WIN64) || (_WIN32)
 #include "Windows.h"
 #include "winerror.h"
+#elif (__linux)
+#include "unistd.h"
+#include "sys/ioctl.h"
 #endif
 
 
@@ -35,6 +41,8 @@
 #define FILE_HANDLER_LUA_OBJECT_TABLE "table_obj"
 
 #define FILE_HANDLER_LINES_DEFAULT_VALUE1 "*l"
+
+#define TEMPORARY_BUFFER_SIZE 1024
 
 
 using namespace dynamic_library::util;
@@ -179,6 +187,8 @@ static const fdata _io_handler_fdata[] = {
   _this->lock_object(); \
   _this->_clear_error(); \
    \
+{ /* enclosure for using gotos */ \
+   \
   vararr _fargs; \
     _fargs.append_var(table_obj); \
     _fargs.append(&args); \
@@ -188,6 +198,7 @@ static const fdata _io_handler_fdata[] = {
     _this->_set_last_error(-1, format_str("Cannot run an nil function (%s)", _fname.get_string()).c_str()); \
     goto skip_to_return; \
   } \
+   \
   int _errcode = _fvar->run_function(&_this->_lc, &_fargs, &res); \
   if(_this->_has_error(&res)) \
     _this->_copy_error_from(&res); \
@@ -195,12 +206,16 @@ static const fdata _io_handler_fdata[] = {
     _this->_set_last_error(_errcode, res.get_var(0)); \
   /* delete result from table_var */ \
   table_obj->free_variant(_fvar); \
+   \
+} /* enclosure closing */ \
+   \
   skip_to_return:{}\
   _this->unlock_object(); \
   if(_this->get_last_error()){ \
     _this->get_last_error()->push_to_stack(lc); \
     lc->context->api_util->error(lc->istate); \
   } \
+   \
   return _finish_function_vararr(lc, &args, &res);
   
 #define IO_HANDLER_SET_FILE(file, target_table) \
@@ -233,10 +248,7 @@ static void _def_iohandler_destructor(I_object* obj){
 io_handler::io_handler(const lua::api::core* lc, const constructor_param* param): function_store(_def_iohandler_destructor){
   set_function_data(_io_handler_fdata);
 
-#if (_WIN64) || (_WIN32)
   _object_mutex_ptr = &_object_mutex;
-  InitializeCriticalSection(_object_mutex_ptr);
-#endif
 
   I_file_handler* _stdout = NULL;
   I_file_handler* _stdin = NULL;
@@ -247,19 +259,17 @@ io_handler::io_handler(const lua::api::core* lc, const constructor_param* param)
     _stderr = param->stderr_file;
   }
 
-#if (_WIN64) || (_WIN32)
   if(!_stdout){
-    _stdout = __dm->new_class_dbg<file_handler>(DYNAMIC_MANAGEMENT_DEBUG_DATA, lc, GetStdHandle(STD_OUTPUT_HANDLE), true);
+    _stdout = __dm->new_class_dbg<file_handler>(DYNAMIC_MANAGEMENT_DEBUG_DATA, lc, stdout, true);
   }
 
   if(!_stdin){
-    _stdin = __dm->new_class_dbg<file_handler>(DYNAMIC_MANAGEMENT_DEBUG_DATA, lc, GetStdHandle(STD_INPUT_HANDLE), false);
+    _stdin = __dm->new_class_dbg<file_handler>(DYNAMIC_MANAGEMENT_DEBUG_DATA, lc, stdin, false);
   }
 
   if(!_stderr){
-    _stderr = __dm->new_class_dbg<file_handler>(DYNAMIC_MANAGEMENT_DEBUG_DATA, lc, GetStdHandle(STD_ERROR_HANDLE), true);
+    _stderr = __dm->new_class_dbg<file_handler>(DYNAMIC_MANAGEMENT_DEBUG_DATA, lc, stderr, true);
   }
-#endif
 
   _stdout_object = __dm->new_class_dbg<object_var>(DYNAMIC_MANAGEMENT_DEBUG_DATA, lc, _stdout);
   _stdin_object = __dm->new_class_dbg<object_var>(DYNAMIC_MANAGEMENT_DEBUG_DATA, lc, _stdin);
@@ -298,10 +308,6 @@ io_handler::~io_handler(){
   __dm->delete_class_dbg(_fileerr_def, DYNAMIC_MANAGEMENT_DEBUG_DATA);
   
   _clear_error();
-
-#if (_WIN64) || (_WIN32)
-  DeleteCriticalSection(_object_mutex_ptr);
-#endif
 }
 
 
@@ -1091,15 +1097,11 @@ void io_handler::on_object_added(const core* lc){
 
 
 void io_handler::lock_object() const{
-#if (_WIN64) || (_WIN32)
-  EnterCriticalSection(_object_mutex_ptr);
-#endif
+  _object_mutex_ptr->lock();
 }
 
 void io_handler::unlock_object() const{
-#if (_WIN64) || (_WIN32)
-  LeaveCriticalSection(_object_mutex_ptr);
-#endif
+  _object_mutex_ptr->unlock();
 }
 
 
@@ -1128,98 +1130,112 @@ file_handler::file_handler(const core* lc, const std::string& path, int op): fun
   _initialize_file_handler_static_vars();
   set_function_data(_file_handler_fdata);
 
-#if (_WIN64) || (_WIN32)
   _object_mutex_ptr = &_object_mutex;
-  InitializeCriticalSection(_object_mutex_ptr);
-#endif
 
   _lc = *lc;
-  // create copy of path in case of temporary file 
-  std::string _actual_path = path;
-
-#if (_WIN64) || (_WIN32)
-  DWORD _access_type = 0;
-  DWORD _open_type = 0;
-  DWORD _flags = 0;
-
-  // op code checks
-  if(op & open_temporary)
-    op |= open_write | open_special;
-
-  if(op & open_append)
-    op |= open_preserve;
-
-  // adjust io behaviour
-  if(op & open_special)
-    _access_type = GENERIC_WRITE;
-  else
-    _access_type = (op & (open_write | open_append))? GENERIC_WRITE: GENERIC_READ;
-
-  // adjust opening behaviour
-  _open_type = (op & open_write)? OPEN_ALWAYS: OPEN_EXISTING;
-
-  // if temporary, ignore path argument, create a new file with time as its name
-  if(op & open_temporary)
-    _actual_path = create_random_name() + TEMPORARY_FILE_EXT;
-
-  HANDLE _file = CreateFileA(
-    _actual_path.c_str(),
-    _access_type,
-    0,
-    NULL,
-    _open_type,
-    _flags,
-    NULL
-  );
-
-  // check if error
-  if(_file == INVALID_HANDLE_VALUE){
-    _update_last_error_winapi();
-    return;
-  }
-
-  // check if not preserve
-  if(op & open_write && !(op & open_preserve)){
-    SetFilePointer(_file, 0, NULL, FILE_BEGIN);
-    SetEndOfFile(_file);
-
-    FlushFileBuffers(_file);
-  }
-
-  // check if append
-  if(op & open_append)
-    _minimal_write_offset = GetFileSize(_file, NULL);
 
   _op_code = op;
-
-  _hfile = _file;
   _is_pipe_handle = false;
   _own_handle = true;
+  _file_path = path;
 
-  _file_path = _actual_path;
-#endif
+{ // enclosure for using gotos
+  if(op & open_temporary){
+    _file_object = tmpfile();
+    if(!_file_object){
+      _set_last_error(LUA_ERRFILE, format_str_mem(__dm, "Cannot open temporary file, error code: %d", errno));
+      return;
+    }
+
+    _op_code = open_temporary;
+    _file_path = "";
+    goto skip_file_creation;
+  }
+
+  _file_path = path;
+
+  std::string _open_mode_str;
+  if(op & open_append)
+    _open_mode_str += "a";
+  else
+    _open_mode_str += op & open_write? "w": "r";
+
+  if(op & open_binary)
+    _open_mode_str += "b";
+
+  if(op & open_special)
+    _open_mode_str += "+";
+
+  _file_object = fopen(path.c_str(), _open_mode_str.c_str());
+  if(!_file_object){
+    _set_last_error(LUA_ERRFILE, format_str_mem(__dm, "Cannot open file '%s', opening operation: %d, error code: %d", path.c_str(), op, errno));
+    return;
+  }
+} // enclosure closing
+ 
+  skip_file_creation:{}
 
   _initiate_reference();
 }
 
-#if (_WIN64) || (_WIN32)
-file_handler::file_handler(const core* lc, HANDLE pipe_handle, bool is_output): function_store(_def_fhandler_destructor){
+file_handler::file_handler(const core* lc, FILE* pipe_handle, bool is_output): function_store(_def_fhandler_destructor){
   _initialize_file_handler_static_vars();
   set_function_data(_file_handler_fdata);
 
-#if (_WIN64) || (_WIN32)
   _object_mutex_ptr = &_object_mutex;
-  InitializeCriticalSection(_object_mutex_ptr);
-#endif
 
   _lc = *lc;
-  _hfile = pipe_handle;
+  _file_object = pipe_handle;
   _is_pipe_handle = true;
   _own_handle = false;
 
   _op_code = is_output? open_write: open_read;
 
   _initiate_reference();
+
+  _temporary_buffer.reserve(TEMPORARY_BUFFER_SIZE);
+}
+
+#if (_WIN64) || (_WIN32)
+file_handler::file_handler(const core* lc, HANDLE pipe_handle, bool is_output): function_store(_def_fhandler_destructor){
+  // TODO set error when the handle is not actually a pipe
+
+  _initialize_file_handler_static_vars();
+  set_function_data(_file_handler_fdata);
+
+  _object_mutex_ptr = &_object_mutex;
+
+  _lc = *lc;
+  _hfile = pipe_handle;
+  _is_pipe_handle = true;
+  _is_pipe_handle_os_specific = true;
+  _own_handle = false;
+
+  _op_code = is_output? open_write: open_read;
+
+  _initiate_reference();
+
+  _temporary_buffer.reserve(TEMPORARY_BUFFER_SIZE);
+}
+#elif (__linux)
+file_handler::file_handler(const core* lc, int pipe_handle, bool is_output): function_store(_def_fhandler_destructor){
+  _initialize_file_handler_static_vars();
+  set_function_data(_file_handler_fdata);
+
+  _object_mutex_ptr = &_object_mutex;
+
+  _lc = *lc;
+  _pipe_handle = pipe_handle;
+  _pipe_handle_valid = true;
+  _is_pipe_handle = true;
+  _is_pipe_handle_os_specific = true;
+  _own_handle = false;
+
+  _op_code = is_output? open_write: open_read;
+
+  _initiate_reference();
+  
+  _temporary_buffer.reserve(TEMPORARY_BUFFER_SIZE);
 }
 #endif
 
@@ -1231,10 +1247,6 @@ file_handler::~file_handler(){
   flush();
   close();
   _clear_error();
-
-#if (_WIN64) || (_WIN32)
-  DeleteCriticalSection(_object_mutex_ptr);
-#endif
 }
 
 
@@ -1251,6 +1263,10 @@ void file_handler::_set_last_error(long long err_code, const std::string& err_ms
 
   string_var _str = err_msg.c_str();
   _last_error = __dm->new_class_dbg<error_var>(DYNAMIC_MANAGEMENT_DEBUG_DATA, &_str, err_code);
+}
+
+void file_handler::_update_last_ferror(){
+  _set_last_error(errno, format_str_mem(__dm, "Error occurred when operating on a file. Code: %d", errno));
 }
 
 #if (_WIN64) || (_WIN32)
@@ -1294,44 +1310,18 @@ void file_handler::_delete_object_table(){
 }
 
 
-void file_handler::_skip_str(bool(*filter_cb)(char ch)){
-  if(already_closed()){
-    _set_last_error(ERROR_HANDLE_EOF, "File already closed.");
-    return;
+void file_handler::_skip_str(char_filter_function filter_cb){
+  char_filter_function _filter_func;
+  if(filter_cb){
+    _filter_func = [&](char ch){
+      return !filter_cb(ch);
+    };
   }
 
-  if(!can_read()){
-    _set_last_error(-1, "Read operation is prohibited.");
-    return;
-  }
-
-  char _tmpc;
-  while(!end_of_file_reached()){
-#if (_WIN64) || (_WIN32)
-    _tmpc = peek();
-
-    if(!filter_cb(_tmpc))
-      break;
-
-    bool _success = ReadFile(_hfile, &_tmpc, sizeof(char), NULL, NULL);
-    if(!_success)
-      goto on_windows_error;
-#endif
-  }
-
-  return;
-
-
-  // ERROR GOTOs
-
-#if (_WIN64) || (_WIN32)
-  on_windows_error:{
-    _update_last_error_winapi();
-  }
-#endif
+  _read_str(NULL, SIZE_MAX, _filter_func, true);
 }
 
-int file_handler::_read_str(char* buffer, size_t buflen, bool(*filter_cb)(char ch)){
+int file_handler::_read_str(char* buffer, size_t buflen, char_filter_function filter_cb, bool skip_if_empty){
   if(already_closed()){
     _set_last_error(ERROR_HANDLE_EOF, "File already closed.");
     return -1;
@@ -1346,58 +1336,83 @@ int file_handler::_read_str(char* buffer, size_t buflen, bool(*filter_cb)(char c
   }
 
   if(!can_read()){
-    _set_last_error(-1, "Read operation is prohibited.");
+    _set_last_error(ERROR_INVALID_FUNCTION, "Read operation is prohibited.");
     return -1;
   }
 
   // for dummy read
-  if(!buffer || !buflen)
+  if(!buffer && (!buflen || !filter_cb))
     return 0;
 
   size_t _cur_idx = 0;
   char _tmpc;
+
   while(!end_of_file_reached() && _cur_idx < buflen){
+    bool _using_temporary_buffer = false;
+    if(_temporary_buffer.size()){
+      _using_temporary_buffer = true;
+      _tmpc = _temporary_buffer[0];
+      _temporary_buffer.erase(_temporary_buffer.begin());
+    }
+    else{
+      size_t _remaining_len = get_remaining_read();
+      if(!_remaining_len && skip_if_empty)
+        break;
+
+      if(_is_pipe_handle && _is_pipe_handle_os_specific){
 #if (_WIN64) || (_WIN32)
-    _tmpc = peek();
-    if(get_last_error())
-      break;
-
-    if(filter_cb && filter_cb(_tmpc))
-      break;
-
-    bool _success = ReadFile(_hfile, &_tmpc, sizeof(char), NULL, NULL);
-    if(!_success)
-      goto on_windows_error;
+        // Was planning on using PeekNamedPipe, but for the sake of simplicity...
+        if(!ReadFile(_hfile, &_tmpc, 1, NULL, NULL))
+          goto on_windows_error;
+#elif (__linux)
+        if(!::read(_pipe_handle, &_tmpc, 1))
+          goto on_error;
+#else
+#error No implementation
 #endif
+      }
+      else{
+        // stdio pipes will still use fread
+        if(!fread(&_tmpc, 1, 1, _file_object))
+          goto on_error;
+      }
+    }
 
-    buffer[_cur_idx] = _tmpc;
+    if(filter_cb && filter_cb(_tmpc)){
+      if(_is_pipe_handle){
+        if(_using_temporary_buffer)
+          _temporary_buffer.insert(_temporary_buffer.begin(), _tmpc);
+        else
+          _temporary_buffer += _tmpc;
+      }
+      else
+        fseek(_file_object, ftell(_file_object)-1, SEEK_SET);
+      
+      break;
+    }
+
+    if(buffer)
+      buffer[_cur_idx] = _tmpc;
+    
     _cur_idx++;
   }
 
-  buffer[_cur_idx] = '\0';
+  if(buffer)
+    buffer[_cur_idx] = '\0';
+  
   return _cur_idx;
 
 
   // ERROR GOTOs
-
 #if (_WIN64) || (_WIN32)
-  on_windows_error:{
-    _update_last_error_winapi();
-
-    buffer[_cur_idx] = '\0';
-    return _cur_idx;
-  }
+  on_windows_error:{}
+  _update_last_error_winapi();
+  return 0;
 #endif
-}
 
-
-void file_handler::_check_write_pos(){
-  if(_is_pipe_handle) 
-    return;
-
-  long _current_pos = seek(seek_current, 0);
-  if(_current_pos < _minimal_write_offset)
-    seek(seek_begin, _minimal_write_offset);
+  on_error:{}
+  _update_last_ferror();
+  return 0;
 }
 
 
@@ -1943,7 +1958,6 @@ bool file_handler::close(){
   _clear_error();
 
 { // enclosure for using gotos
-#if (_WIN64) || (_WIN32)
   if(already_closed()){
     _set_last_error(ERROR_HANDLE_EOF, "File already closed.");
     _result = false;
@@ -1954,14 +1968,17 @@ bool file_handler::close(){
 
   if(_own_handle){
     flush();
-    CloseHandle(_hfile);
-
-    if(_op_code & open_temporary)
-      DeleteFile(_file_path.c_str());
+    fclose(_file_object);
   }
 
+  _file_object = NULL;
+
+#if (_WIN64) || (_WIN32)
   _hfile = NULL;
+#elif (__linux)
+  _pipe_handle_valid = false;
 #endif
+
 } // enclosure closing
 
   skip_to_return:{}
@@ -1969,25 +1986,21 @@ bool file_handler::close(){
   return _result;
 }
 
-bool file_handler::flush(){
-#if (_WIN64) || (_WIN32)
-  if(GetFileType(_hfile) == FILE_TYPE_PIPE)
+bool file_handler::flush(){ 
+  if(_is_pipe_handle)
     return false;
-#endif
 
   bool _result = true;
   lock_object();
   _clear_error();
 
-#if (_WIN64) || (_WIN32)
   if(already_closed()){ 
     _set_last_error(ERROR_HANDLE_EOF, "File already closed.");
     _result = false;
     goto skip_to_return;
   }
 
-  FlushFileBuffers(_hfile);
-#endif
+  fflush(_file_object);
 
   skip_to_return:{}
   unlock_object();
@@ -2011,21 +2024,38 @@ char file_handler::peek(){
     goto skip_to_return;
   }
 
+  if(_is_pipe_handle){
+    if(_temporary_buffer.size())
+      _tmpc = _temporary_buffer[0];
+    else if(_is_pipe_handle_os_specific){
 #if (_WIN64) || (_WIN32)
-  bool _success;
-  if(GetFileType(_hfile) == FILE_TYPE_PIPE){
-    _success = PeekNamedPipe(_hfile, &_tmpc, sizeof(char), NULL, NULL, NULL);
-    if(!_success)
-      goto on_windows_error;
+      if(!PeekNamedPipe(_hfile, &_tmpc, sizeof(char), NULL, NULL, NULL))
+        goto on_windows_error;
+#elif (__linux)
+      if(!::read(_pipe_handle, &_tmpc, 1))
+        goto on_file_error;
+
+      _temporary_buffer += _tmpc;
+#else
+#error No implementation
+#endif
+    }
+    else{
+      if(!fread(&_tmpc, 1, 1, _file_object))
+        goto on_file_error;
+
+      _temporary_buffer += _tmpc;
+    }
   }
   else{
-    _success = ReadFile(_hfile, &_tmpc, sizeof(char), NULL, NULL);
-    if(!_success)
-      goto on_windows_error;
-
-    seek(seek_current, -1);
+    // not same as expected read len means error
+    if(!fread(&_tmpc, 1, 1, _file_object))
+      goto on_file_error;
+    
+    // nonzero means error
+    if(fseek(_file_object, ftell(_file_object)-1, SEEK_SET))
+      goto on_file_error;
   }
-#endif
 } // enclosure closing
 
   skip_to_return:{}
@@ -2036,12 +2066,16 @@ char file_handler::peek(){
   // ERROR GOTOs
 
 #if (_WIN64) || (_WIN32)
-  on_windows_error:{
-    _update_last_error_winapi();
-    unlock_object();
-    return '\0';
-  }
+  on_windows_error:{}
+  _update_last_error_winapi();
+  unlock_object();
+  return '\0';
 #endif
+
+  on_file_error:{}
+  _update_last_ferror();
+  unlock_object();
+  return '\0';
 }
 
 long file_handler::seek(seek_opt opt, long offset){
@@ -2060,46 +2094,37 @@ long file_handler::seek(seek_opt opt, long offset){
     goto skip_to_return;
   }
 
-#if (_WIN64) || (_WIN32)
-  DWORD _filesize = GetFileSize(_hfile, NULL);
-  if(_filesize == INVALID_FILE_SIZE)
-    goto on_windows_error;
+  long _current_idx = ftell(_file_object);
+  // nonzero means error
+  if(fseek(_file_object, 0, SEEK_END))
+    goto on_file_error;
 
-  DWORD _currentpos = SetFilePointer(_hfile, 0, NULL, FILE_CURRENT);
-  if(_currentpos == INVALID_FILE_SIZE)
-    goto on_windows_error;
+  long _file_end_idx = ftell(_file_object);
+  // nonzero means error
+  if(fseek(_file_object, _current_idx, SEEK_SET))
+    goto on_file_error;
 
-  // NOTE: WINAPI does not support negative values as the new seek value
-  // using loop as seek_begin used as a pivot
-  bool _keep_loop = true;
-  while(_keep_loop){
-    switch(opt){
-      break; case seek_begin:{
-        if(offset < 0)
-          offset = 0;
-        else if(offset > _filesize)
-          offset = _filesize;
-
-        _keep_loop = false;
-      }
-
-      break; case seek_current:{
-        offset += _currentpos;
-        opt = seek_begin;
-      }
-
-      break; case seek_end:{
-        offset += _filesize;
-        opt = seek_begin;
-      }
-    }
+  long _finish_idx;
+  switch(opt){
+    break; case seek_begin:
+      _finish_idx = 0;
+    
+    break; case seek_current:
+      _finish_idx = _current_idx;
+    
+    break; case seek_end:
+      _finish_idx = _file_end_idx;
   }
 
-  _result = SetFilePointer(_hfile, offset, NULL, FILE_BEGIN);
-  if(_result == INVALID_FILE_SIZE)
-    goto on_windows_error;
+  _finish_idx += offset;
+  _finish_idx = max(0, _finish_idx);
+  _finish_idx = min(_file_end_idx, _finish_idx);
 
-#endif
+  // nonzere means error
+  if(fseek(_file_object, _finish_idx, SEEK_SET))
+    goto on_file_error;
+
+  _result = _finish_idx;
 } // enclosure closing
 
   skip_to_return:{}
@@ -2109,13 +2134,10 @@ long file_handler::seek(seek_opt opt, long offset){
 
   // ERROR GOTOs
 
-#if (_WIN64) || (_WIN32)
-  on_windows_error:{
-    _update_last_error_winapi();
-    unlock_object();
-    return -1;
-  }
-#endif
+  on_file_error:{}
+  _update_last_ferror();
+  unlock_object();
+  return -1;
 }
 
 size_t file_handler::read(char* buffer, size_t buffer_size){
@@ -2142,37 +2164,37 @@ size_t file_handler::write(const char* buffer, size_t buffer_size){
     goto skip_to_return;
   }
 
-  // check appending mode
-  _check_write_pos();
-
+  bool _skip_stdio_write = false;
+  if(_is_pipe_handle && _is_pipe_handle_os_specific){
 #if (_WIN64) || (_WIN32)
-  DWORD _written_len = 0;
-  bool _success = WriteFile(
-    _hfile,
-    buffer,
-    buffer_size,
-    &_written_len,
-    NULL
-  );
+    _skip_stdio_write = true;
+    DWORD _written_len = 0;
+    bool _success = WriteFile(
+      _hfile,
+      buffer,
+      buffer_size,
+      &_written_len,
+      NULL
+    );
 
-  if(!_success)
-    goto on_windows_error;
+    if(!_success)
+      goto on_windows_error;
 
-  _result = _written_len;
+    _result = _written_len;
+#elif (__linux)
+    _skip_stdio_write = true;
+    _result = ::write(_pipe_handle, buffer, buffer_size);
+    if(_result != buffer_size)
+      goto on_file_error;
+#else
+#error No implementation
 #endif
+  }
 
-  switch(_buffering_mode){
-    break; case buffering_none:{
-      flush();
-    }
-
-    break; case buffering_line:{
-      character_filter _filter = [](char c){ return c == '\n' || c == '\r'; };
-      if(string_find_character(buffer, buffer_size, _filter) != SIZE_MAX)
-        flush();
-    }
-
-    // buffering_full: let the OS handle it
+  if(!_skip_stdio_write){
+    _result = fwrite(buffer, 1, buffer_size, _file_object); 
+    if(_result != buffer_size)
+      goto on_file_error;
   }
 } // enclosure closing
 
@@ -2183,23 +2205,48 @@ size_t file_handler::write(const char* buffer, size_t buffer_size){
 
   // ERROR GOTOs
 #if (_WIN64) || (_WIN32)
-  on_windows_error:{
-    _update_last_error_winapi();
-    unlock_object();
-    return 0;
-  }
+  on_windows_error:{}
+  _update_last_error_winapi();
+  unlock_object();
+  return 0;
 #endif
+
+  on_file_error:{}
+  _update_last_ferror();
+  unlock_object();
+  return 0;
 }
 
 void file_handler::set_buffering_mode(buffering_mode mode){
   lock_object();
   _clear_error();
+
+{ // enclosure for using gotos
+  if(_is_pipe_handle){
+    _set_last_error(ERROR_INVALID_PARAMETER, "Cannot set buffering mode to a pipe.");
+    goto skip_to_return;
+  }
+
   if(already_closed()){
     _set_last_error(ERROR_HANDLE_EOF, "File already closed.");
     goto skip_to_return;
   }
 
-  _buffering_mode = mode;
+  int _actual_mode = _IOFBF;
+  switch(mode){
+    break; case buffering_line:
+      _actual_mode = _IOLBF;
+    
+    break; case buffering_none:
+      _actual_mode = _IONBF;
+  }
+
+  int _error_code = ::setvbuf(_file_object, NULL, _actual_mode, 0);
+  if(_error_code){
+    _update_last_ferror();
+    goto skip_to_return;
+  }
+} // enclosure closing
 
   skip_to_return:{}
   unlock_object();
@@ -2207,15 +2254,24 @@ void file_handler::set_buffering_mode(buffering_mode mode){
 
 
 bool file_handler::already_closed() const{
-  if(_hfile && _is_pipe_handle){
+  if(_is_pipe_handle && _is_pipe_handle_os_specific){
+#if (_WIN64) || (_WIN32)
+    if(!_hfile)
+      return true;
+
     char _tmp;
     if(_op_code & open_write)
       return !WriteFile(_hfile, &_tmp, 0, NULL, NULL);
     else
       return !PeekNamedPipe(_hfile, &_tmp, sizeof(char), NULL, NULL, NULL);
+#elif (__linux)
+    return !_pipe_handle_valid;
+#else
+#error No implementation
+#endif
   }
 
-  return !_hfile;
+  return !_file_object;
 }
 
 bool file_handler::end_of_file_reached() const{
@@ -2230,24 +2286,50 @@ size_t file_handler::get_remaining_read() const{
   lock_object();
 
 { // enclosure for using gotos
+  if(!can_read())
+    goto skip_to_return;
+
   if(already_closed())
     goto skip_to_return;
 
+  bool _skip_stdio_check = false;
+  if(_is_pipe_handle){
+    _skip_stdio_check = true;
+    if(_is_pipe_handle_os_specific){
 #if (_WIN64) || (_WIN32)
-  if(GetFileType(_hfile) == FILE_TYPE_PIPE){
-    DWORD _available_bytes = 0;
-    PeekNamedPipe(_hfile, NULL, 0, NULL, &_available_bytes, NULL);
-    _result = _available_bytes;
-  }
-  else{
-    DWORD _file_size = GetFileSize(_hfile, NULL);
-    DWORD _file_pointer = SetFilePointer(_hfile, 0, NULL, FILE_CURRENT);
-    _result = _file_pointer != INVALID_SET_FILE_POINTER?
-      _file_size - _file_pointer:
-      0
-    ;
-  }
+      DWORD _available_bytes = 0;
+      PeekNamedPipe(_hfile, NULL, 0, NULL, &_available_bytes, NULL);
+      _result = _available_bytes;
+#elif (__linux)
+      int _size = 0;
+      ioctl(_pipe_handle, FIONREAD, &_size);
+      _result = _size;
+#else
+#error No implementation
 #endif
+    }
+    else{
+      // Since pipes used within FILE* only exist for stdio, this can be translated to each individual OSs pipes/file descriptors
+#if (_WIN64) || (_WIN32)
+      DWORD _available_bytes = 0;
+      PeekNamedPipe(GetStdHandle(STD_INPUT_HANDLE), NULL, 0, NULL, &_available_bytes, NULL);
+      _result = _available_bytes;
+#elif (__linux)
+      int _size = 0;
+      ioctl(STDIN_FILENO, FIONREAD, &_size);
+      _result = _size;
+#else
+#error No implementation
+#endif
+    }
+  }
+
+  if(!_skip_stdio_check){
+    long _current_idx = ftell(_file_object);
+    fseek(_file_object, 0, SEEK_END);
+    _result = ftell(_file_object);
+    fseek(_file_object, _current_idx, SEEK_SET);
+  }
 } // enclosure closing
 
   skip_to_return:{}
@@ -2284,15 +2366,11 @@ void file_handler::on_object_added(const core* lc){
 
 
 void file_handler::lock_object() const{
-#if (_WIN64) || (_WIN32)
-  EnterCriticalSection(_object_mutex_ptr);
-#endif
+  _object_mutex_ptr->lock();
 }
 
 void file_handler::unlock_object() const{
-#if (_WIN64) || (_WIN32)
-  LeaveCriticalSection(_object_mutex_ptr);
-#endif
+  _object_mutex_ptr->unlock();
 }
 
 
@@ -2313,6 +2391,8 @@ DLLEXPORT lua::library::I_file_handler* CPPLUA_LIBRARY_CREATE_FILE_HANDLER(const
   }
   else{
 #if (_WIN64) || (_WIN32)
+    return __dm->new_class_dbg<file_handler>(DYNAMIC_MANAGEMENT_DEBUG_DATA, data->lua_core, data->pipe_handle, data->is_output);
+#elif (__linux)
     return __dm->new_class_dbg<file_handler>(DYNAMIC_MANAGEMENT_DEBUG_DATA, data->lua_core, data->pipe_handle, data->is_output);
 #endif
   }

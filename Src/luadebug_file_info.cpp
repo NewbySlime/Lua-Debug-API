@@ -235,7 +235,7 @@ void file_info::refresh_info(){
 
   char* _file_buffer = (char*)__dm->malloc(LUA_EMPTY_CODE_FILLER_SIZE+_file_size, DYNAMIC_MANAGEMENT_DEBUG_DATA);
 
-  size_t _read_len = fread(_file_buffer, 1, _file_size, _file_handle);
+  size_t _read_len = fread(&_file_buffer[LUA_EMPTY_CODE_FILLER_SIZE], 1, _file_size, _file_handle);
   _file_buffer[_read_len+LUA_EMPTY_CODE_FILLER_SIZE] = '\0';
 
   _update_file_info(_file_buffer);
