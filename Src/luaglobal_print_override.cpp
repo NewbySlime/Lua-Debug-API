@@ -1,4 +1,3 @@
-#include "defines.h"
 #include "luaglobal_print_override.h"
 #include "luainternal_storage.h"
 #include "luamemory_util.h"
@@ -7,6 +6,8 @@
 #include "memory.h"
 #include "std_logger.h"
 #include "string_util.h"
+
+#include "defines.h"
 
 
 #define LUD_PRINT_OVERRIDE_VAR_NAME "__clua_print_override"
@@ -102,7 +103,7 @@ size_t print_override::_read_buffer(char* dest, size_t dest_len, bool is_peeking
     
     size_t _read_remaining = dest_len-_read_idx;
 
-    size_t _read_len = min(_buffer_remaining, _read_remaining);
+    size_t _read_len = std::min(_buffer_remaining, _read_remaining);
     memcpy(&dest[_read_idx], &_buffer_data[_start_iteration_index], _read_len);
 
     if(_start_iteration_index < _iteration_index && _start_iteration_index+_read_len >= _iteration_index)
@@ -132,7 +133,7 @@ size_t print_override::_write_buffer(const char* src, size_t src_len){
     size_t _buffer_remaining = _buffer_len-_iteration_index;
     size_t _write_remaining = src_len-_write_idx;
 
-    size_t _write_len = min(_buffer_remaining, _write_remaining);
+    size_t _write_len = std::min(_buffer_remaining, _write_remaining);
     memcpy(&_buffer_data[_iteration_index], &src[_write_idx], _write_len);
 
     if(_buffer_filled && _start_iteration_index == _iteration_index)

@@ -3,15 +3,15 @@
 
 #if (_WIN64) || (_WIN32)
 
+#ifdef max
+#undef max
+#endif
+
+#ifdef min
+#undef min
+#endif
+
 #elif (__linux)
-
-#ifndef max
-#define max std::max
-#endif
-
-#ifndef min
-#define min std::min
-#endif
 
 #define __stdcall 
 

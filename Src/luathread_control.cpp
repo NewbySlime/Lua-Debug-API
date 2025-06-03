@@ -338,7 +338,7 @@ unsigned long thread_control::run_execution(execution_context cb, void* cbdata){
     _tepdata->lstate = _state;
     _tepdata->_this = this;
 
-  unsigned long _thread_id = ERROR_INVALID_THREAD_ID;
+  unsigned long _thread_id = 0;
 
 { // enclosure for mutex
   std::unique_lock _ul(_tepdata->init_mutex);

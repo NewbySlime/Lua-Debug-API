@@ -1,4 +1,3 @@
-#include "defines.h"
 #include "dllutil.h"
 #include "error_definition.h"
 #include "error_util.h"
@@ -28,6 +27,8 @@
 #include "unistd.h"
 #include "sys/ioctl.h"
 #endif
+
+#include "defines.h"
 
 
 #define IO_HANDLER_STDOUT_VARNAME "stdout"
@@ -1141,14 +1142,27 @@ file_handler::file_handler(const core* lc, const std::string& path, int op): fun
 
 { // enclosure for using gotos
   if(op & open_temporary){
+#if (__linux)
+    const char* _template_name = "luaapi_XXXXXX";
+    char* _template_name_buf = (char*)__dm->malloc(strlen(_template_name)+1, DYNAMIC_MANAGEMENT_DEBUG_DATA);
+    _template_name_buf[strlen(_template_name)] = '\0';
+
+    int _tmpfile_fd = mkstemp(_template_name_buf);
+    _file_object = fdopen(_tmpfile_fd, "w+r");
+
+    _file_path = _template_name_buf;
+    __dm->free(_template_name_buf, DYNAMIC_MANAGEMENT_DEBUG_DATA);
+#else
     _file_object = tmpfile();
+    _file_path = "";
+#endif
+
     if(!_file_object){
       _set_last_error(LUA_ERRFILE, format_str_mem(__dm, "Cannot open temporary file, error code: %d", errno));
       return;
     }
 
     _op_code = open_temporary;
-    _file_path = "";
     goto skip_file_creation;
   }
 
@@ -2117,8 +2131,8 @@ long file_handler::seek(seek_opt opt, long offset){
   }
 
   _finish_idx += offset;
-  _finish_idx = max(0, _finish_idx);
-  _finish_idx = min(_file_end_idx, _finish_idx);
+  _finish_idx = std::max((long)0, _finish_idx);
+  _finish_idx = std::min(_file_end_idx, _finish_idx);
 
   // nonzere means error
   if(fseek(_file_object, _finish_idx, SEEK_SET))
