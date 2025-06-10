@@ -133,6 +133,12 @@ namespace memory{
 }
 
 
+#if (__linux)
+// Just to make the compiler happy
+#define __stdcall 
+#endif
+
+
 #define MEMDYNAMIC_MANAGEMENT_GET_STATIC_INSTANCE memdynamic_management_get_static_instance
 #define MEMDYNAMIC_MANAGEMENT_GET_STATIC_INSTANCE_STR MACRO_TO_STR_EXP(MEMDYNAMIC_MANAGEMENT_GET_STATIC_INSTANCE_STR)
 

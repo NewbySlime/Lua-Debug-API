@@ -48,6 +48,12 @@ namespace lua{
 }
 
 
+#if (__linux)
+// Just to make the compiler happy
+#define __stdcall 
+#endif
+
+
 #define CPPLUA_CREATE_LIBRARY_LOADER cpplua_create_library_loader
 #define CPPLUA_CREATE_LIBRARY_LOADER_STR MACRO_TO_STR_EXP(CPPLUA_CREATE_LIBRARY_LOADER)
 

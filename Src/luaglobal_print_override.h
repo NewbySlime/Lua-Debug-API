@@ -119,6 +119,12 @@ namespace lua::global{
 
 // MARK: DLL functions
 
+#if (__linux)
+// Just to make the compiler happy
+#define __stdcall 
+#endif
+
+
 #define CPPLUA_CREATE_GLOBAL_PRINT_OVERRIDE cpplua_create_global_print_override
 #define CPPLUA_CREATE_GLOBAL_PRINT_OVERRIDE_STR MACRO_TO_STR_EXP(CPPLUA_CREATE_GLOBAL_PRINT_OVERRIDE)
 

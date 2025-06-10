@@ -1158,7 +1158,7 @@ file_handler::file_handler(const core* lc, const std::string& path, int op): fun
 #endif
 
     if(!_file_object){
-      _set_last_error(LUA_ERRFILE, format_str_mem(__dm, "Cannot open temporary file, error code: %d", errno));
+      _set_last_error(LUA_ERRFILE, format_str_mem(__dm, "Cannot open temporary file, err: %s", strerror(errno)));
       return;
     }
 
@@ -1182,7 +1182,7 @@ file_handler::file_handler(const core* lc, const std::string& path, int op): fun
 
   _file_object = fopen(path.c_str(), _open_mode_str.c_str());
   if(!_file_object){
-    _set_last_error(LUA_ERRFILE, format_str_mem(__dm, "Cannot open file '%s', opening operation: %d, error code: %d", path.c_str(), op, errno));
+    _set_last_error(LUA_ERRFILE, format_str_mem(__dm, "Cannot open file '%s', opening operation: %d, err: %s", path.c_str(), op, strerror(errno)));
     return;
   }
 } // enclosure closing
@@ -1280,7 +1280,7 @@ void file_handler::_set_last_error(long long err_code, const std::string& err_ms
 }
 
 void file_handler::_update_last_ferror(){
-  _set_last_error(errno, format_str_mem(__dm, "Error occurred when operating on a file. Code: %d", errno));
+  _set_last_error(errno, format_str_mem(__dm, "Error occurred when operating on a file. Err: %s", strerror(errno)));
 }
 
 #if (_WIN64) || (_WIN32)

@@ -225,7 +225,7 @@ void file_info::refresh_info(){
 
   FILE* _file_handle = fopen(_file_path.c_str(), "r");
   if(!_file_handle){
-    _set_error_data(LUA_ERRFILE, format_str_mem(__dm, "Cannot open file. Err code: {0}", errno).c_str());
+    _set_error_data(LUA_ERRFILE, format_str_mem(__dm, "Cannot open file. Err: {0}", strerror(errno)).c_str());
     return;
   }
 

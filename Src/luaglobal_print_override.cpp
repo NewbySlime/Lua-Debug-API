@@ -7,7 +7,14 @@
 #include "std_logger.h"
 #include "string_util.h"
 
-#include "defines.h"
+
+#ifdef max
+#undef max
+#endif
+
+#ifdef min
+#undef min
+#endif
 
 
 #define LUD_PRINT_OVERRIDE_VAR_NAME "__clua_print_override"

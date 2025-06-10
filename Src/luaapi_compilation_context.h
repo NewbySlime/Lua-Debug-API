@@ -45,6 +45,12 @@ namespace lua::api{
 }
 
 
+#if (__linux)
+// Just to make the compiler happy
+#define __stdcall 
+#endif
+
+
 #define CPPLUA_GET_API_COMPILATION_CONTEXT cpplua_get_api_compilation_context
 #define CPPLUA_GET_API_COMPILATION_CONTEXT_STR MACRO_TO_STR_EXP(cpplua_get_api_compilation_context)
 

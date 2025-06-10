@@ -24,6 +24,12 @@ namespace lua::api{
 }
 
 
+#if (__linux)
+// Just to make the compiler happy
+#define __stdcall 
+#endif
+
+
 #define CPPLUA_GET_API_UTIL_DEFINITION cpplua_get_api_util_definition
 #define CPPLUA_GET_API_UTIL_DEFINITION_STR MACRO_TO_STR_EXP(CPPLUA_GET_API_UTIL_DEFINITION)
 

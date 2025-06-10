@@ -25,7 +25,7 @@ namespace lua::api{
 #define CPPLUA_GET_API_EXECUTION_DEFINITION cpplua_get_api_execution_defintion
 #define CPPLUA_GET_API_EXECUTION_DEFINITION_STR MACRO_TO_STR_EXP(CPPLUA_GET_API_EXECUTION_DEFINITION)
 
-typedef lua::api::I_execution* (__stdcall *get_api_execution_func)();
+typedef lua::api::I_execution* ( *get_api_execution_func)();
 
 #ifdef LUA_CODE_EXISTS
 DLLEXPORT lua::api::I_execution* CPPLUA_GET_API_EXECUTION_DEFINITION();

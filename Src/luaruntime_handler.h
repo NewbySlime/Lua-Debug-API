@@ -137,6 +137,12 @@ namespace lua{
 }
 
 
+#if (__linux)
+// Just to make the compiler happy
+#define __stdcall 
+#endif
+
+
 #define CPPLUA_CREATE_RUNTIME_HANDLER cpplua_create_runtime_handler
 #define CPPLUA_CREATE_RUNTIME_HANDLER_STR MACRO_TO_STR_EXP(CPPLUA_CREATE_RUNTIME_HANDLER)
 

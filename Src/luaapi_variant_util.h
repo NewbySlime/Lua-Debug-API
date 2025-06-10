@@ -33,6 +33,12 @@ namespace lua::api{
 
 // MARK: DLL functions
 
+#if (__linux)
+// Just to make the compiler happy
+#define __stdcall 
+#endif
+
+
 #define CPPLUA_GET_API_VARIANT_UTIL_DEFINITION cpplua_get_api_variant_util_definition
 #define CPPLUA_GET_API_VARIANT_UTIL_DEFINITION_STR MACRO_TO_STR_EXP(CPPLUA_GET_API_VARIANT_UTIL_DEFINITION)
 

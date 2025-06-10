@@ -71,6 +71,12 @@ namespace lua::debug{
 }
 
 
+#if (__linux)
+// Just to make the compiler happy
+#define __stdcall 
+#endif
+
+
 #define CPPLUA_CREATE_FILE_INFO cpplua_create_file_info
 #define CPPLUA_CREATE_FILE_INFO_STR MACRO_TO_STR_EXP(CPPLUA_CREATE_FILE_INFO)
 

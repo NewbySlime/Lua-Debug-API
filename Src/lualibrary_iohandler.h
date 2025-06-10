@@ -367,6 +367,12 @@ namespace lua::library{
 }
 
 
+#if (__linux)
+// Just to make the compiler happy
+#define __stdcall 
+#endif
+
+
 #define CPPLUA_LIBRARY_CREATE_IO_HANDLER cpplua_library_create_io_handler
 #define CPPLUA_LIBRARY_CREATE_IO_HANDLER_STR MACRO_TO_STR_EXP(CPPLUA_LIBRARY_CREATE_IO_HANDLER)
 

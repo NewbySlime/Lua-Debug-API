@@ -158,6 +158,12 @@ namespace lua::debug{
 }
 
 
+#if (__linux)
+// Just to make the compiler happy
+#define __stdcall 
+#endif
+
+
 #define CPPLUA_CREATE_VARIABLE_WATCHER cpplua_create_variable_watcher
 #define CPPLUA_CREATE_VARIABLE_WATCHER_STR MACRO_TO_STR_EXP(CPPLUA_CREATE_VARIABLE_WATCHER)
 

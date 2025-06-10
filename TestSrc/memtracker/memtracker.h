@@ -86,6 +86,12 @@ class memtracker: public I_memtracker{
 };
 
 
+#if (__linux)
+// Just to make the compiler happy
+#define __stdcall 
+#endif
+
+
 #define MEMTRACKER_CONSTRUCT memtracker_construct
 #define MEMTRACKER_CONSTRUCT_STR MACRO_TO_STR_EXP(MEMTRACKER_CONSTRUCT)
 

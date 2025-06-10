@@ -983,6 +983,12 @@ bool cpplua_has_custom_type(int type);
 
 // MARK: DLL functions
 
+#if (__linux)
+// Just to make the compiler happy
+#define __stdcall 
+#endif
+
+
 #define CPPLUA_VARIANT_SET_DEFAULT_LOGGER cpplua_variant_set_default_logger
 #define CPPLUA_VARIANT_SET_DEFAULT_LOGGER_STR MACRO_TO_STR_EXP(CPPLUA_VARIANT_SET_DEFAULT_LOGGER)
 
